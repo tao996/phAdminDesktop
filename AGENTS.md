@@ -1,0 +1,115 @@
+# AGENTS.md — PhAdmin Desktop
+
+## Project
+
+PhAdmin Desktop 是 Phalcon Admin 的主机侧部署控制台，目标替代仓库根目录的 `php admin` CLI。
+
+- **状态**：Tauri 2 脚手架 + 静态 UI 原型已完成；SQLite/SSH/部署逻辑尚未接入。
+- **技术栈**：Tauri 2、Rust、React 19、TypeScript、Vite、SQLite。
+- **主数据源**：SQLite（见 [docs/data-model.md](docs/data-model.md)）。
+- **legacy 引擎**：`php admin` 仅用于迁移、差分验收、过渡期回退，不是桌面端默认执行内核。
+- **旧部署配置**：`D:\demo\code\flutter\library\projects\phalcon-admin\deploy\projects\vbox*` 只是历史测试配置，不作为生产配置直接导入。
+
+## 必读文档
+
+按顺序阅读：
+
+1. [docs/architecture.md](docs/architecture.md) — 架构、模块、任务模型
+2. [docs/data-model.md](docs/data-model.md) — SQLite schema、目录、密钥
+3. [docs/development.md](docs/development.md) — 命令、目录、开发顺序
+4. [docs/roadmap.md](docs/roadmap.md) — 当前阶段与验收
+5. [docs/ui-preview.md](docs/ui-preview.md) — UI 设计稿
+
+文档和代码冲突时，先确认设计意图；设计变更先改文档再改代码。
+
+## Commands
+
+```bash
+npm install
+npm run dev
+npm run tauri dev
+npm run typecheck
+npm run build
+npm run tauri build
+```
+
+Rust：
+
+```bash
+cd src-tauri
+cargo fmt --check
+cargo clippy -- -D warnings
+cargo test
+cargo check
+```
+
+legacy 参考（只读）：
+
+```powershell
+cd D:\demo\code\flutter\library\projects\phalcon-admin
+php admin config:export
+```
+
+## Architecture Rules
+
+1. **SQLite 是唯一可写事实源**。不要把 PHP `server.php` 当第二主库。
+2. **多服务器用 `(server_id, project_id)` 的 `deployments` 建模**。禁止按项目名共用生成物/备份/日志目录。
+3. **前端不直接访问 SQLite**；只调用 Rust command。
+4. **SQL 只在 `src-tauri/src/db/`**；Tauri command 只做校验 + 调 service。
+5. **进程参数用 argv 数组**，禁止 `shell: true` 或字符串拼接。
+6. **每个 deployment 同一时间只允许一个写任务**；长任务走 `runs` + 日志文件。
+7. **密码/密钥不落 SQLite 明文**；使用 OS keychain，DB 只存引用。
+8. **PHP fallback 单向导出**，不双向同步，不默认调用。
+9. **生成物按 `deployment_id` 隔离**，不写旧仓库 `deploy/projects/`。
+10. **危险操作**（reset、db:migrate、db:seed、nginx:remove、cron-rm）必须二次确认。
+
+## Directory
+
+```text
+src/                 React/TS 前端
+src-tauri/           Rust/Tauri 后端
+docs/                设计/开发文档
+AGENTS.md            本文件
+```
+
+后续 Rust 模块拆分见 `docs/architecture.md` 第 5 节。不要把所有逻辑塞进 `lib.rs`。
+
+## Current Task
+
+Phase 1（SQLite + 只读）：
+
+- 当前 UI 使用 `src/data/mock.ts`，下一步先把 mock 替换成 SQLite repository；
+- 接入 SQLite（首选 sqlx SQLite；若不合适再评估 rusqlite）；
+- 建 `servers` / `projects` / `deployments` 表 + migrations；
+- 实现只读 `list_servers` / `list_projects` / `list_deployments`；
+- UI 显示服务器 × 项目矩阵；
+- 用 `php admin config:export` 的 JSON 做一次导入 PoC。
+
+不要提前实现部署/SSH/Docker 写操作。先把数据层和只读链路打通。
+
+## Testing
+
+- Rust：`cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`；
+- 前端：`npm run typecheck`、`npm run build`；
+- SQLite：migration 升级/恢复测试；
+- 配置渲染：与 PHP 输出做 golden/diff；
+- 没有人工逐行评审，测试是唯一验收标准；编译通过不等于完成。
+
+## Code Style
+
+- Rust：模块化、`Result` 错误、避免 `unwrap()` 进入生产路径；
+- TypeScript：strict，API 调用集中，组件不散落 `invoke`；
+- 命名：数据库 snake_case，Rust 类型 PascalCase，TS 类型 PascalCase；
+- 注释只写“为什么”，不写显而易见的“是什么”。
+
+## 安全
+
+- WebView CSP 只允许本地资源；
+- 不执行任意 shell；参数白名单/校验；
+- 日志脱敏 password/secret/token/key；
+- SQLite DB、日志、导出配置不提交 git（见 `.gitignore`）。
+
+## Legacy 下线
+
+在 desktop 覆盖全部主流程并通过真实项目回归前，不要删除/修改 legacy `deploy`。
+PHP fallback 只用于迁移和应急，不参与日常部署。
