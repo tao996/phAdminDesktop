@@ -213,12 +213,14 @@ Phase 1 已完成：
 - SQLite `servers/projects/deployments` 三表 + 启动 seed；
 - `load_workspace` 只读 command；
 - UI 的服务器/项目/部署从 SQLite 加载；
+- legacy `config:export` JSON 导入（设置 → 导入 legacy 配置）；
+- `domains/env_vars/sync_items/deployment_settings/runs` 表；
 - 容器、活动、备份仍为 mock。
 
 下一步：
 
-- legacy `php admin config:export` JSON 导入；
-- `sync_items` / `runs` 表；
-- 用真实数据替换剩余 mock。
+- SSH 连接与 `runs` 任务执行；
+- 用真实数据替换容器/活动/备份 mock；
+- 部署 / 升级编排。
 
 详见 [roadmap.md](roadmap.md)。

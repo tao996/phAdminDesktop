@@ -49,3 +49,12 @@ pub struct Workspace {
     pub projects: Vec<Project>,
     pub deployments: Vec<Deployment>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSummary {
+    pub servers: usize,
+    pub projects: usize,
+    pub deployments: usize,
+    pub sync_items: usize,
+}

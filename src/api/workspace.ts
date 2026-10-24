@@ -37,10 +37,21 @@ export interface WorkspaceResponse {
   deployments: WorkspaceDeployment[];
 }
 
+export interface ImportSummary {
+  servers: number;
+  projects: number;
+  deployments: number;
+  syncItems: number;
+}
+
 export function canUseTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 export async function loadWorkspace(): Promise<WorkspaceResponse> {
   return invoke<WorkspaceResponse>("load_workspace");
+}
+
+export async function importLegacyConfig(json: string): Promise<ImportSummary> {
+  return invoke<ImportSummary>("import_legacy_config", { json });
 }

@@ -2,7 +2,7 @@
 
 Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + TypeScript + SQLite 构建。
 
-> 当前状态：静态 UI + SQLite 只读层已实现；数据来自本地 SQLite（首次启动 seed），部署/SSH 逻辑尚未接入。
+> 当前状态：静态 UI + SQLite 只读/导入层已实现；数据来自本地 SQLite（首次启动 seed，可导入 legacy 配置），部署/SSH 逻辑尚未接入。
 
 ![项目概览](docs/screenshots/overview.png)
 
@@ -15,6 +15,20 @@ Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + Type
 - 最终替代仓库根目录的 `php admin`
 
 `php admin` 在过渡期保留为迁移来源、差分验收 oracle 和应急回退路径。
+
+## 导入 legacy 配置
+
+在 legacy 仓库生成 JSON：
+
+```bash
+php admin config:export
+```
+
+打开应用 → 设置 → 导入 legacy 配置 → 选择 `deploy/.cache/config.json`。
+
+- 导入写入本地 SQLite，不连接服务器；
+- 重复导入按 `(server, project)` 幂等更新；
+- 密码/密钥类 env 只记录“需要密钥”，不写入明文。
 
 ## 快速开始
 

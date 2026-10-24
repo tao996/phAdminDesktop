@@ -19,7 +19,7 @@ pub fn open(path: &Path) -> Result<Connection, Box<dyn Error>> {
     Ok(connection)
 }
 
-fn migrate(connection: &Connection) -> rusqlite::Result<()> {
+pub(crate) fn migrate(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS servers (
             id          TEXT PRIMARY KEY,
@@ -68,11 +68,69 @@ fn migrate(connection: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_deployments_server
             ON deployments(server_id);
         CREATE INDEX IF NOT EXISTS idx_deployments_project
-            ON deployments(project_id);",
+            ON deployments(project_id);
+
+        CREATE TABLE IF NOT EXISTS domains (
+            id            TEXT PRIMARY KEY,
+            deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+            domain        TEXT NOT NULL,
+            sort          INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (deployment_id, domain)
+        );
+
+        CREATE TABLE IF NOT EXISTS env_vars (
+            id            TEXT PRIMARY KEY,
+            deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+            key           TEXT NOT NULL,
+            value         TEXT,
+            is_secret     INTEGER NOT NULL DEFAULT 0 CHECK (is_secret IN (0, 1)),
+            secret_ref    TEXT,
+            UNIQUE (deployment_id, key)
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_items (
+            id            TEXT PRIMARY KEY,
+            deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+            sort          INTEGER NOT NULL DEFAULT 0,
+            method        TEXT NOT NULL,
+            name          TEXT NOT NULL DEFAULT '',
+            path          TEXT NOT NULL DEFAULT '',
+            repo          TEXT NOT NULL DEFAULT '',
+            branch        TEXT NOT NULL DEFAULT 'main',
+            excludes_json TEXT NOT NULL DEFAULT '[]'
+        );
+
+        CREATE TABLE IF NOT EXISTS deployment_settings (
+            deployment_id      TEXT PRIMARY KEY REFERENCES deployments(id) ON DELETE CASCADE,
+            config_json        TEXT NOT NULL DEFAULT '{}',
+            hooks_json         TEXT NOT NULL DEFAULT '{}',
+            docker_images_json TEXT NOT NULL DEFAULT '{}',
+            router_json        TEXT NOT NULL DEFAULT '{}',
+            nginx_json         TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE TABLE IF NOT EXISTS runs (
+            id            TEXT PRIMARY KEY,
+            deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+            command       TEXT NOT NULL,
+            args_json     TEXT NOT NULL DEFAULT '[]',
+            status        TEXT NOT NULL CHECK (status IN
+                          ('queued', 'running', 'succeeded', 'failed', 'canceled')),
+            exit_code     INTEGER,
+            started_at    TEXT,
+            ended_at      TEXT,
+            log_path      TEXT,
+            error_summary TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sync_items_deployment
+            ON sync_items(deployment_id, sort);
+        CREATE INDEX IF NOT EXISTS idx_runs_deployment_started
+            ON runs(deployment_id, started_at DESC);",
     )
 }
 
-fn seed_if_empty(connection: &mut Connection) -> Result<(), Box<dyn Error>> {
+pub(crate) fn seed_if_empty(connection: &mut Connection) -> Result<(), Box<dyn Error>> {
     let count: i64 = connection.query_row("SELECT COUNT(*) FROM servers", [], |row| row.get(0))?;
     if count > 0 {
         return Ok(());

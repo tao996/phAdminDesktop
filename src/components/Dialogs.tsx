@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Project, Server } from "../data/mock";
+import type { ImportSummary } from "../api/workspace";
 import { Icon } from "./Icon";
 
 interface AddProjectModalProps {
@@ -231,12 +232,48 @@ export function CommandPalette({ open, commands, onClose, onRun }: CommandPalett
 
 interface SettingsModalProps {
   onClose: () => void;
+  onImportLegacy: (json: string) => Promise<ImportSummary>;
 }
 
-export function SettingsModal({ onClose }: SettingsModalProps) {
+export function SettingsModal({ onClose, onImportLegacy }: SettingsModalProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+
+  const importFile = async (file: File | undefined) => {
+    if (!file) return;
+    setImporting(true);
+    setImportMessage(null);
+    try {
+      const summary = await onImportLegacy(await file.text());
+      setImportMessage({
+        ok: true,
+        text: `已导入 ${summary.servers} 个服务器、${summary.projects} 个项目、${summary.deployments} 个部署、${summary.syncItems} 个同步项。`,
+      });
+    } catch (error) {
+      setImportMessage({
+        ok: false,
+        text: error instanceof Error ? error.message : "导入失败",
+      });
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal settings-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="modal settings-modal"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <div>
             <span className="section-kicker">Preferences</span>
@@ -263,8 +300,38 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               <strong>数据目录</strong>
               <small>SQLite 与运行日志的本地位置</small>
             </div>
-            <code>%APPDATA%/phadmin-desktop</code>
+            <code>%APPDATA%/cn.gu19.phadmin.desktop</code>
           </div>
+          <div className="settings-row settings-row-import">
+            <div>
+              <strong>导入 legacy 配置</strong>
+              <small>选择 php admin config:export 生成的 JSON</small>
+            </div>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden-file-input"
+                onChange={(event) => void importFile(event.currentTarget.files?.[0])}
+              />
+              <button
+                type="button"
+                className="button secondary small"
+                disabled={importing}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Icon name="download" size={13} />
+                {importing ? "导入中…" : "选择 JSON"}
+              </button>
+            </div>
+          </div>
+          {importMessage && (
+            <div className={`settings-import-message ${importMessage.ok ? "ok" : "error"}`}>
+              <Icon name={importMessage.ok ? "check" : "alert"} size={13} />
+              {importMessage.text}
+            </div>
+          )}
           <div className="settings-row">
             <div>
               <strong>危险操作确认</strong>
@@ -285,7 +352,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           </div>
         </div>
         <div className="modal-footer">
-          <span className="muted-caption">UI 预览，设置暂不持久化。</span>
+          <span className="muted-caption">导入只写入本地 SQLite，不会连接服务器。</span>
           <button type="button" className="button primary" onClick={onClose}>
             完成
           </button>

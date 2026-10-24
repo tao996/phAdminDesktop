@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod legacy;
 mod models;
 
 use std::sync::Mutex;
@@ -24,7 +25,10 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::load_workspace])
+        .invoke_handler(tauri::generate_handler![
+            commands::load_workspace,
+            commands::import_legacy_config
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

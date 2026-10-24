@@ -28,7 +28,7 @@
 - 文档基线；
 - `npm run build` / `cargo check` 可运行。
 
-### Phase 1：SQLite + 只读（下一步）
+### Phase 1：SQLite + 只读/导入（已完成）
 
 - 接入 SQLite（sqlx 或 rusqlite，先定一个）；
 - migrations：`servers`、`projects`、`deployments`；
@@ -147,8 +147,8 @@
 - [x] SQLite 三表 + seed（`servers/projects/deployments`）
 - [x] 只读 `load_workspace` + UI 从 SQLite 加载
 - [x] 架构/数据模型/开发文档
-- [ ] legacy `config:export` 导入
-- [ ] sync_items / runs 表
+- [x] legacy `config:export` 导入
+- [x] sync_items / runs 表（schema + 导入）
 - [ ] SSH / 终端
 - [ ] 部署核心
 - [ ] PHP 回退验收

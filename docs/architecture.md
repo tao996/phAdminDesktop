@@ -1,6 +1,6 @@
 # 架构设计
 
-> 状态：设计基线（静态 UI + SQLite 只读层已实现，部署逻辑未接入）
+> 状态：设计基线（静态 UI + SQLite 只读/导入层已实现，部署逻辑未接入）
 > 最后更新：2026-10-24
 > 关联文档：[data-model.md](data-model.md) · [ui-preview.md](ui-preview.md) · [roadmap.md](roadmap.md)
 
@@ -306,8 +306,9 @@ SQLite
 - 已完成 Tauri 2 + React + TypeScript 脚手架；
 - 已完成静态 UI 原型（概览、部署、容器、Nginx、数据库、日志、弹窗）；
 - 已接入 SQLite 只读层：启动自动建 `servers/projects/deployments` 三表并 seed，`load_workspace` command 返回服务器/项目/部署；
+- 已实现 legacy 导入：`import_legacy_config` 解析 `php admin config:export` JSON，写入 servers/projects/deployments/domains/env_vars/sync_items/deployment_settings；
+- 已建 `runs` 表，但任务执行/终端尚未接入；
 - UI 已从 SQLite 加载服务器/项目/部署；容器、活动、备份仍使用 mock；
-- 尚未实现 SSH、部署、同步项、运行历史；
-- 下一步：legacy `config:export` 导入 + `sync_items/runs` 表。
+- 下一步：SSH 连接、任务执行、部署编排。
 
 参见 [roadmap.md](roadmap.md)。

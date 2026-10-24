@@ -24,7 +24,7 @@ import {
   type TerminalLine,
   type TerminalLineType,
 } from "./data/mock";
-import { canUseTauri, loadWorkspace } from "./api/workspace";
+import { canUseTauri, importLegacyConfig, loadWorkspace, type ImportSummary, type WorkspaceResponse } from "./api/workspace";
 import type { WorkspaceSection } from "./components/Panels";
 
 function now() {
@@ -86,6 +86,55 @@ function App() {
     serverProjects.find((project) => project.id === activeId) ?? null;
   const activeLines = activeProject ? terminals[activeProject.id] ?? [] : [];
 
+  const applyWorkspace = (data: WorkspaceResponse) => {
+    const projectById = new Map(data.projects.map((project) => [project.id, project]));
+    const nextProjects: Project[] = data.deployments.map((deployment) => {
+      const project = projectById.get(deployment.projectId);
+      const mock = seedProjects.find(
+        (item) => item.id === deployment.id || item.name === project?.name,
+      );
+      return {
+        id: deployment.id,
+        serverId: deployment.serverId,
+        name: project?.name ?? deployment.projectId,
+        title: project?.title ?? deployment.projectId,
+        path: deployment.remotePath,
+        domain: deployment.domain,
+        port: deployment.nginxPort,
+        branch: deployment.branch,
+        status: deployment.status as ProjectStatus,
+        ssl: deployment.ssl,
+        lastDeploy: deployment.lastDeploy,
+        backups: deployment.backups,
+        phpVersion: deployment.phpVersion,
+        containers: mock?.containers ?? [],
+      };
+    });
+
+    setServers(data.servers);
+    setProjectList(nextProjects);
+
+    const preferredServer =
+      data.servers.find((item) => item.id === serverId) ?? data.servers[0];
+    if (!preferredServer) return;
+    const preferredProjects = nextProjects.filter(
+      (project) => project.serverId === preferredServer.id,
+    );
+    const preferredProject =
+      preferredProjects.find((project) => project.id === activeId) ?? preferredProjects[0];
+
+    setServerId(preferredServer.id);
+    setOpenIds((current) => {
+      const stillOpen = current.filter((id) =>
+        nextProjects.some((project) => project.id === id),
+      );
+      return stillOpen.length > 0
+        ? stillOpen
+        : preferredProjects.slice(0, 2).map((project) => project.id);
+    });
+    setActiveId(preferredProject?.id ?? "");
+  };
+
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 3200);
@@ -98,54 +147,7 @@ function App() {
 
     void loadWorkspace()
       .then((data) => {
-        if (cancelled) return;
-
-        const projectById = new Map(data.projects.map((project) => [project.id, project]));
-        const nextProjects: Project[] = data.deployments.map((deployment) => {
-          const project = projectById.get(deployment.projectId);
-          const mock = seedProjects.find(
-            (item) => item.id === deployment.id || item.name === project?.name,
-          );
-          return {
-            id: deployment.id,
-            serverId: deployment.serverId,
-            name: project?.name ?? deployment.projectId,
-            title: project?.title ?? deployment.projectId,
-            path: deployment.remotePath,
-            domain: deployment.domain,
-            port: deployment.nginxPort,
-            branch: deployment.branch,
-            status: deployment.status as ProjectStatus,
-            ssl: deployment.ssl,
-            lastDeploy: deployment.lastDeploy,
-            backups: deployment.backups,
-            phpVersion: deployment.phpVersion,
-            containers: mock?.containers ?? [],
-          };
-        });
-
-        setServers(data.servers);
-        setProjectList(nextProjects);
-
-        const preferredServer =
-          data.servers.find((item) => item.id === serverId) ?? data.servers[0];
-        if (!preferredServer) return;
-        const preferredProjects = nextProjects.filter(
-          (project) => project.serverId === preferredServer.id,
-        );
-        const preferredProject =
-          preferredProjects.find((project) => project.id === activeId) ?? preferredProjects[0];
-
-        setServerId(preferredServer.id);
-        setOpenIds((current) => {
-          const stillOpen = current.filter((id) =>
-            nextProjects.some((project) => project.id === id),
-          );
-          return stillOpen.length > 0
-            ? stillOpen
-            : preferredProjects.slice(0, 2).map((project) => project.id);
-        });
-        setActiveId(preferredProject?.id ?? "");
+        if (!cancelled) applyWorkspace(data);
       })
       .catch((error: unknown) => {
         console.error("加载 SQLite 工作区失败，继续使用 mock 数据", error);
@@ -231,6 +233,19 @@ function App() {
     appendLine(activeProject.id, "command", `$ ${command}`);
     appendLine(activeProject.id, "info", "→ 命令已接收，桌面端逻辑尚未接入");
     setToast({ id: Date.now(), message: "命令已写入终端（模拟）" });
+  };
+
+  const handleImportLegacy = async (json: string): Promise<ImportSummary> => {
+    if (!canUseTauri()) {
+      throw new Error("浏览器预览模式不支持导入，请在 Tauri 窗口中使用。");
+    }
+    const summary = await importLegacyConfig(json);
+    applyWorkspace(await loadWorkspace());
+    setToast({
+      id: Date.now(),
+      message: `legacy 导入完成：${summary.servers} 服务器 / ${summary.projects} 项目 / ${summary.deployments} 部署`,
+    });
+    return summary;
   };
 
   const paletteCommands: PaletteCommand[] = activeProject
@@ -356,7 +371,12 @@ function App() {
         onRun={runAction}
       />
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          onImportLegacy={handleImportLegacy}
+        />
+      )}
 
       {toast && (
         <div className="toast" key={toast.id}>
