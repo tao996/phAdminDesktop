@@ -144,9 +144,11 @@
 - [x] Tauri 脚手架
 - [x] UI 设计稿
 - [x] 静态 UI 原型（mock 数据，不含后端）
+- [x] SQLite 三表 + seed（`servers/projects/deployments`）
+- [x] 只读 `load_workspace` + UI 从 SQLite 加载
 - [x] 架构/数据模型/开发文档
-- [ ] SQLite 接入
-- [ ] 只读服务器/项目列表
-- [ ] 终端
+- [ ] legacy `config:export` 导入
+- [ ] sync_items / runs 表
+- [ ] SSH / 终端
 - [ ] 部署核心
 - [ ] PHP 回退验收

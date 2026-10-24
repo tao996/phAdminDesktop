@@ -4,7 +4,7 @@
 
 PhAdmin Desktop 是 Phalcon Admin 的主机侧部署控制台，目标替代仓库根目录的 `php admin` CLI。
 
-- **状态**：Tauri 2 脚手架 + 静态 UI 原型已完成；SQLite/SSH/部署逻辑尚未接入。
+- **状态**：Tauri 2 脚手架 + 静态 UI + SQLite 只读层已完成；SSH/部署逻辑尚未接入。
 - **技术栈**：Tauri 2、Rust、React 19、TypeScript、Vite、SQLite。
 - **主数据源**：SQLite（见 [docs/data-model.md](docs/data-model.md)）。
 - **legacy 引擎**：`php admin` 仅用于迁移、差分验收、过渡期回退，不是桌面端默认执行内核。
@@ -76,14 +76,17 @@ AGENTS.md            本文件
 
 ## Current Task
 
-Phase 1（SQLite + 只读）：
+Phase 1（SQLite + 只读）已完成：
 
-- 当前 UI 使用 `src/data/mock.ts`，下一步先把 mock 替换成 SQLite repository；
-- 接入 SQLite（首选 sqlx SQLite；若不合适再评估 rusqlite）；
-- 建 `servers` / `projects` / `deployments` 表 + migrations；
-- 实现只读 `list_servers` / `list_projects` / `list_deployments`；
-- UI 显示服务器 × 项目矩阵；
-- 用 `php admin config:export` 的 JSON 做一次导入 PoC。
+- `rusqlite` + `servers` / `projects` / `deployments` 三表 + 启动 seed；
+- `load_workspace` 只读 command；
+- UI 的服务器/项目/部署来自 SQLite；容器/活动/备份仍为 mock。
+
+下一步：
+
+- legacy `php admin config:export` JSON 导入；
+- `sync_items` / `runs` 表；
+- 用真实数据替换剩余 mock。
 
 不要提前实现部署/SSH/Docker 写操作。先把数据层和只读链路打通。
 

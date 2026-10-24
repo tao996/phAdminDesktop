@@ -1,0 +1,151 @@
+{
+  "servers": [
+    {
+      "id": "prod",
+      "name": "生产环境",
+      "host": "47.106.226.129",
+      "environment": "production",
+      "status": "connected",
+      "latency": "42ms",
+      "kind": "ssh",
+      "port": 22,
+      "username": "root"
+    },
+    {
+      "id": "staging",
+      "name": "预发布",
+      "host": "192.168.56.120",
+      "environment": "staging",
+      "status": "connected",
+      "latency": "8ms",
+      "kind": "ssh",
+      "port": 22,
+      "username": "root"
+    },
+    {
+      "id": "local",
+      "name": "本地 vbox",
+      "host": "filesystem",
+      "environment": "local",
+      "status": "connected",
+      "latency": "本地",
+      "kind": "filesystem",
+      "port": 22,
+      "username": ""
+    }
+  ],
+  "projects": [
+    {
+      "id": "boyu",
+      "name": "boyu",
+      "title": "博与科技",
+      "repoUrl": "https://github.com/tao996/phalcon-admin.git",
+      "localPath": "D:/demo/code/flutter/library/projects/phalcon-admin"
+    },
+    {
+      "id": "yihe",
+      "name": "yihe",
+      "title": "宜和业务",
+      "repoUrl": "https://github.com/tao996/phalcon-admin.git",
+      "localPath": "D:/demo/code/flutter/library/projects/phalcon-admin"
+    },
+    {
+      "id": "boyu-staging",
+      "name": "boyu-staging",
+      "title": "博与科技 · 预发布",
+      "repoUrl": "https://github.com/tao996/phalcon-admin.git",
+      "localPath": "D:/demo/code/flutter/library/projects/phalcon-admin"
+    },
+    {
+      "id": "vbox",
+      "name": "vbox",
+      "title": "本地 vbox",
+      "repoUrl": "",
+      "localPath": "D:/demo/code/phpProjects/vbox"
+    },
+    {
+      "id": "vbox2",
+      "name": "vbox2",
+      "title": "vbox2 · 历史测试",
+      "repoUrl": "",
+      "localPath": "D:/demo/code/phpProjects/vbox2"
+    }
+  ],
+  "deployments": [
+    {
+      "id": "boyu",
+      "serverId": "prod",
+      "projectId": "boyu",
+      "status": "running",
+      "remotePath": "/data/phalcon-admin",
+      "domain": "gu19.cn",
+      "nginxPort": 8071,
+      "branch": "main",
+      "ssl": true,
+      "lastDeploy": "12 分钟前",
+      "phpVersion": "PHP 8.5.12",
+      "backups": 3,
+      "syncTarget": "remote"
+    },
+    {
+      "id": "yihe",
+      "serverId": "prod",
+      "projectId": "yihe",
+      "status": "running",
+      "remotePath": "/data/yihe",
+      "domain": "yihe.example.com",
+      "nginxPort": 8072,
+      "branch": "main",
+      "ssl": true,
+      "lastDeploy": "2 小时前",
+      "phpVersion": "PHP 8.5.12",
+      "backups": 2,
+      "syncTarget": "remote"
+    },
+    {
+      "id": "boyu-staging",
+      "serverId": "staging",
+      "projectId": "boyu-staging",
+      "status": "warning",
+      "remotePath": "/data/staging/phalcon-admin",
+      "domain": "staging.gu19.cn",
+      "nginxPort": 8073,
+      "branch": "develop",
+      "ssl": false,
+      "lastDeploy": "昨天",
+      "phpVersion": "PHP 8.5.12",
+      "backups": 1,
+      "syncTarget": "remote"
+    },
+    {
+      "id": "vbox",
+      "serverId": "local",
+      "projectId": "vbox",
+      "status": "running",
+      "remotePath": "D:/demo/code/phpProjects/vbox",
+      "domain": "vbox.local",
+      "nginxPort": 8074,
+      "branch": "main",
+      "ssl": false,
+      "lastDeploy": "5 分钟前",
+      "phpVersion": "PHP 8.5.12",
+      "backups": 0,
+      "syncTarget": "filesystem"
+    },
+    {
+      "id": "vbox2",
+      "serverId": "local",
+      "projectId": "vbox2",
+      "status": "not-deployed",
+      "remotePath": "D:/demo/code/phpProjects/vbox2",
+      "domain": "vbox2.local",
+      "nginxPort": 8075,
+      "branch": "main",
+      "ssl": false,
+      "lastDeploy": "从未",
+      "phpVersion": "PHP 8.5.12",
+      "backups": 0,
+      "syncTarget": "filesystem"
+    }
+  ]
+}

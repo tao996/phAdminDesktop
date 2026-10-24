@@ -17,11 +17,14 @@ import {
   backups,
   initialTerminalLines,
   projects as seedProjects,
-  servers,
+  servers as seedServers,
   type Project,
+  type ProjectStatus,
+  type Server,
   type TerminalLine,
   type TerminalLineType,
 } from "./data/mock";
+import { canUseTauri, loadWorkspace } from "./api/workspace";
 import type { WorkspaceSection } from "./components/Panels";
 
 function now() {
@@ -40,7 +43,7 @@ const sectionIds: WorkspaceSection[] = [
 function readBootState() {
   const params = new URLSearchParams(window.location.search);
   const requestedServer = params.get("server");
-  const serverId = servers.some((item) => item.id === requestedServer)
+  const serverId = seedServers.some((item) => item.id === requestedServer)
     ? (requestedServer as string)
     : "prod";
   const serverProjects = seedProjects.filter((project) => project.serverId === serverId);
@@ -61,6 +64,7 @@ const boot = readBootState();
 
 function App() {
   const [serverId, setServerId] = useState(boot.serverId);
+  const [servers, setServers] = useState<Server[]>(seedServers);
   const [projectList, setProjectList] = useState<Project[]>(seedProjects);
   const [openIds, setOpenIds] = useState<string[]>(boot.openIds);
   const [activeId, setActiveId] = useState(boot.project?.id ?? "");
@@ -87,6 +91,70 @@ function App() {
     const timer = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    let cancelled = false;
+
+    void loadWorkspace()
+      .then((data) => {
+        if (cancelled) return;
+
+        const projectById = new Map(data.projects.map((project) => [project.id, project]));
+        const nextProjects: Project[] = data.deployments.map((deployment) => {
+          const project = projectById.get(deployment.projectId);
+          const mock = seedProjects.find(
+            (item) => item.id === deployment.id || item.name === project?.name,
+          );
+          return {
+            id: deployment.id,
+            serverId: deployment.serverId,
+            name: project?.name ?? deployment.projectId,
+            title: project?.title ?? deployment.projectId,
+            path: deployment.remotePath,
+            domain: deployment.domain,
+            port: deployment.nginxPort,
+            branch: deployment.branch,
+            status: deployment.status as ProjectStatus,
+            ssl: deployment.ssl,
+            lastDeploy: deployment.lastDeploy,
+            backups: deployment.backups,
+            phpVersion: deployment.phpVersion,
+            containers: mock?.containers ?? [],
+          };
+        });
+
+        setServers(data.servers);
+        setProjectList(nextProjects);
+
+        const preferredServer =
+          data.servers.find((item) => item.id === serverId) ?? data.servers[0];
+        if (!preferredServer) return;
+        const preferredProjects = nextProjects.filter(
+          (project) => project.serverId === preferredServer.id,
+        );
+        const preferredProject =
+          preferredProjects.find((project) => project.id === activeId) ?? preferredProjects[0];
+
+        setServerId(preferredServer.id);
+        setOpenIds((current) => {
+          const stillOpen = current.filter((id) =>
+            nextProjects.some((project) => project.id === id),
+          );
+          return stillOpen.length > 0
+            ? stillOpen
+            : preferredProjects.slice(0, 2).map((project) => project.id);
+        });
+        setActiveId(preferredProject?.id ?? "");
+      })
+      .catch((error: unknown) => {
+        console.error("加载 SQLite 工作区失败，继续使用 mock 数据", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

@@ -2,7 +2,7 @@
 
 Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + TypeScript + SQLite 构建。
 
-> 当前状态：静态 UI 预览已实现，业务逻辑尚未接入；数据来自 `src/data/mock.ts`。
+> 当前状态：静态 UI + SQLite 只读层已实现；数据来自本地 SQLite（首次启动 seed），部署/SSH 逻辑尚未接入。
 
 ![项目概览](docs/screenshots/overview.png)
 

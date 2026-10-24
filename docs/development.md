@@ -208,12 +208,17 @@ Phase 0 已完成：
 - 静态 UI 原型（mock 数据、页面切换、弹窗、模拟终端）；
 - 文档基线。
 
-下一步（Phase 1）：
+Phase 1 已完成：
 
-- 接入 SQLite（建议 sqlx SQLite）；
-- 建 `servers/projects/deployments` 三表；
-- 实现只读列表 command；
-- UI 显示“服务器 × 项目”矩阵；
-- 用 `config:export` JSON 做一次导入 PoC。
+- SQLite `servers/projects/deployments` 三表 + 启动 seed；
+- `load_workspace` 只读 command；
+- UI 的服务器/项目/部署从 SQLite 加载；
+- 容器、活动、备份仍为 mock。
+
+下一步：
+
+- legacy `php admin config:export` JSON 导入；
+- `sync_items` / `runs` 表；
+- 用真实数据替换剩余 mock。
 
 详见 [roadmap.md](roadmap.md)。
