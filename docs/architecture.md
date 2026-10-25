@@ -321,7 +321,7 @@ SQLite
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；
 - 新增 `sync_bundle_item`：本地 filesystem / SSH 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，SSH 通过 scp 上传；执行结果写入 runs 与日志；
 - 新增 `sync_ftp_item`：本地目录递归复制 / SSH `scp -r`，本地支持 excludes；
-- ftp/SFTP 基础同步已接入；`.env` 与 Nginx server block 渲染预览已接入（只读），配置写入未接入；升级仍由 `php admin upgrade` 完成；
+- ftp/SFTP 基础同步已接入；`.env` 与 Nginx server block 可预览并写入本地 generated 目录，远程写入未接入；升级仍由 `php admin upgrade` 完成；
 - 下一步：远程 git sync / bundle / ftp。
 
 参见 [roadmap.md](roadmap.md)。

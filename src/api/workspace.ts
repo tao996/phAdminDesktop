@@ -219,3 +219,15 @@ export async function renderConfigPreview(deploymentId: string): Promise<string>
 export async function renderNginxPreview(deploymentId: string): Promise<string> {
   return invoke<string>("render_nginx_preview", { deploymentId });
 }
+
+export interface GeneratedFiles {
+  directory: string;
+  envPath: string;
+  nginxPath: string;
+}
+
+export async function writeGeneratedConfig(
+  deploymentId: string,
+): Promise<GeneratedFiles> {
+  return invoke<GeneratedFiles>("write_generated_config", { deploymentId });
+}

@@ -1,10 +1,13 @@
-use tauri::State;
+use std::fs;
+
+use serde::Serialize;
+use tauri::{AppHandle, Manager, State};
 
 use crate::AppState;
 
 const ENV_TEMPLATE: &str = include_str!("../templates/env.example");
 
-fn render_env(project: &str, remote_path: &str, nginx_port: i64) -> String {
+pub(crate) fn render_env(project: &str, remote_path: &str, nginx_port: i64) -> String {
     ENV_TEMPLATE
         .replace("{{TZ}}", "Asia/Shanghai")
         .replace("{{APP_NAME}}", project)
@@ -20,7 +23,7 @@ fn render_env(project: &str, remote_path: &str, nginx_port: i64) -> String {
         .replace("{{REDIS_IMAGE}}", "redis:7.2-alpine")
 }
 
-fn render_nginx(domains: &[String], nginx_port: i64, ssl: bool) -> String {
+pub(crate) fn render_nginx(domains: &[String], nginx_port: i64, ssl: bool) -> String {
     let server_name = domains.join(" ");
     let primary = domains.first().cloned().unwrap_or_default();
     let mut config = format!(
@@ -146,6 +149,81 @@ pub fn render_nginx_preview(
     }
 
     Ok(render_nginx(&domains, nginx_port, ssl != 0))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedFiles {
+    pub directory: String,
+    pub env_path: String,
+    pub nginx_path: String,
+}
+
+#[tauri::command]
+pub fn write_generated_config(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<GeneratedFiles, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    let (project, remote_path, nginx_port, ssl, domain) = connection
+        .query_row(
+            "SELECT p.name, d.remote_path, d.nginx_port, d.ssl, d.domain
+             FROM deployments d
+             JOIN projects p ON p.id = d.project_id
+             WHERE d.id = ?1",
+            [&deployment_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .map_err(|error| format!("部署不存在: {error}"))?;
+
+    let mut domains = Vec::new();
+    let mut statement = connection
+        .prepare("SELECT domain FROM domains WHERE deployment_id = ?1 ORDER BY sort")
+        .map_err(|error| format!("读取域名失败: {error}"))?;
+    let rows = statement
+        .query_map([&deployment_id], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("读取域名失败: {error}"))?;
+    for row in rows {
+        domains.push(row.map_err(|error| format!("读取域名失败: {error}"))?);
+    }
+    if domains.is_empty() && !domain.trim().is_empty() {
+        domains.push(domain);
+    }
+    if domains.is_empty() {
+        domains.push("example.com".to_string());
+    }
+
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("获取数据目录失败: {error}"))?
+        .join("generated")
+        .join(&deployment_id);
+    fs::create_dir_all(&directory).map_err(|error| format!("创建生成目录失败: {error}"))?;
+    let env_path = directory.join(".env");
+    let nginx_path = directory.join("nginx.conf");
+    fs::write(&env_path, render_env(&project, &remote_path, nginx_port))
+        .map_err(|error| format!("写入 .env 失败: {error}"))?;
+    fs::write(&nginx_path, render_nginx(&domains, nginx_port, ssl != 0))
+        .map_err(|error| format!("写入 nginx.conf 失败: {error}"))?;
+
+    Ok(GeneratedFiles {
+        directory: directory.to_string_lossy().to_string(),
+        env_path: env_path.to_string_lossy().to_string(),
+        nginx_path: nginx_path.to_string_lossy().to_string(),
+    })
 }
 
 #[cfg(test)]

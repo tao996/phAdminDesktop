@@ -5,6 +5,8 @@ import {
   loadDeploymentConfig,
   renderConfigPreview,
   renderNginxPreview,
+  writeGeneratedConfig,
+  type GeneratedFiles,
   type DeploymentConfig,
 } from "../api/workspace";
 import { Icon } from "./Icon";
@@ -39,6 +41,19 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [loading, setLoading] = useState(false);
   const [renderedEnv, setRenderedEnv] = useState<string | null>(null);
   const [renderedNginx, setRenderedNginx] = useState<string | null>(null);
+  const [generated, setGenerated] = useState<GeneratedFiles | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      setGenerated(await writeGeneratedConfig(project.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   useEffect(() => {
     if (!canUseTauri()) return;
@@ -155,6 +170,19 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                   rendered nginx
                 </button>
               </div>
+              {(active === "rendered" || active === "rendered-nginx") && (
+                <div className="config-generate-row">
+                  <button
+                    type="button"
+                    className="button secondary small"
+                    disabled={generating}
+                    onClick={() => void generate()}
+                  >
+                    {generating ? "生成中…" : "写入本地生成目录"}
+                  </button>
+                  {generated && <code>{generated.directory}</code>}
+                </div>
+              )}
               {active === "rendered" ? (
                 <pre className="config-json">
                   {renderedEnv ?? "（生成器暂不可用）"}
