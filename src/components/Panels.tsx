@@ -5,6 +5,8 @@ import {
   getContainers,
   listRuns,
   loadDeploymentConfig,
+  previewDeployPlan,
+  type DeployStep,
   type RunRecord,
   type SyncItem,
 } from "../api/workspace";
@@ -332,6 +334,7 @@ export function DeployPanel({
   const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [plan, setPlan] = useState<DeployStep[]>([]);
 
   useEffect(() => {
     if (!canUseTauri()) return;
@@ -360,6 +363,21 @@ export function DeployPanel({
   }, [project.id]);
 
   const methods = Array.from(new Set(syncItems.map((item) => item.method).filter(Boolean)));
+
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    let cancelled = false;
+    void previewDeployPlan(project.id, restart)
+      .then((value) => {
+        if (!cancelled) setPlan(value);
+      })
+      .catch(() => {
+        if (!cancelled) setPlan([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, restart]);
 
   const filterPart =
     filter === "method" ? ` method=${method}` : filter === "name" ? ` name=${entry}` : "";
@@ -603,20 +621,32 @@ export function DeployPanel({
               : "当前为 UI 预览，按钮只模拟执行并把命令写入终端，不会连接服务器。"}
           </div>
           <div className="step-list">
-            {[
-              ["同步代码", "bundle / ftp 按 sync.items 顺序"],
-              ["生成配置", ".env / compose / nginx / php.ini"],
-              ["启动容器", "docker compose up -d"],
-              ["更新 Nginx", "生成 server block 并 reload"],
-            ].map(([title, desc], index) => (
-              <div className="step-row" key={title}>
-                <span className="step-index">{index + 1}</span>
-                <div>
-                  <strong>{title}</strong>
-                  <small>{desc}</small>
-                </div>
-              </div>
-            ))}
+            {plan.length > 0
+              ? plan.map((step, index) => (
+                  <div className="step-row" key={step.key}>
+                    <span className="step-index">{index + 1}</span>
+                    <div>
+                      <strong>{step.title}</strong>
+                      <small className="mono">
+                        {step.program} {step.args.join(" ")}
+                      </small>
+                    </div>
+                  </div>
+                ))
+              : [
+                  ["同步代码", "bundle / ftp 按 sync.items 顺序"],
+                  ["生成配置", ".env / compose / nginx / php.ini"],
+                  ["启动容器", "docker compose up -d"],
+                  ["更新 Nginx", "生成 server block 并 reload"],
+                ].map(([title, desc], index) => (
+                  <div className="step-row" key={title}>
+                    <span className="step-index">{index + 1}</span>
+                    <div>
+                      <strong>{title}</strong>
+                      <small>{desc}</small>
+                    </div>
+                  </div>
+                ))}
           </div>
         </aside>
       </div>

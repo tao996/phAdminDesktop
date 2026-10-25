@@ -50,6 +50,7 @@ pub fn run() {
             commands::list_runs,
             commands::read_run_log,
             deploy::start_deploy,
+            deploy::preview_deploy_plan,
             runner::run_command,
             runner::cancel_run,
             runner::get_containers

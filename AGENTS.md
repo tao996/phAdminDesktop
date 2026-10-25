@@ -91,7 +91,7 @@ Phase 1（SQLite + 只读/导入）已完成：
 - Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock；
 - Deploy「开始升级」调用 `start_deploy`：升级 → compose up → Nginx reload → 可选重启 PHP；失败中止，同 deployment 防并发；
 - 步骤 run 关联 `deploy_runs`，任务面板显示步骤；
-- Deploy 面板读取真实 `sync_items` / `deployment_settings`；
+- Deploy 面板通过 `preview_deploy_plan` 展示真实步骤/命令。
 - 本地 filesystem / SSH git 同步项支持 clone / pull（`sync_git_item`）；同步项级锁；
 - 本地 / SSH bundle 同步支持 git bundle（`sync_bundle_item`）；ftp/SFTP 基础同步（`sync_ftp_item`）；
 - 配置预览弹窗只读展示 sync items 与 settings JSON；

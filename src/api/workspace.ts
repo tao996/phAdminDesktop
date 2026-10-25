@@ -185,6 +185,13 @@ export async function startDeploy(
   return invoke<DeployStart>("start_deploy", { deploymentId, restartPhp });
 }
 
+export async function previewDeployPlan(
+  deploymentId: string,
+  restartPhp: boolean,
+): Promise<DeployStep[]> {
+  return invoke<DeployStep[]>("preview_deploy_plan", { deploymentId, restartPhp });
+}
+
 export async function loadDeploymentConfig(
   deploymentId: string,
 ): Promise<DeploymentConfig> {

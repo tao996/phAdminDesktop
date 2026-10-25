@@ -238,6 +238,29 @@ fn execute_plan(
 }
 
 #[tauri::command]
+pub fn preview_deploy_plan(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    restart_php: bool,
+) -> Result<Vec<DeployStep>, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    let project_name = connection
+        .query_row(
+            "SELECT p.name
+             FROM deployments d
+             JOIN projects p ON p.id = d.project_id
+             WHERE d.id = ?1",
+            [&deployment_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|error| format!("部署不存在: {error}"))?;
+    Ok(build_plan(&project_name, restart_php))
+}
+
+#[tauri::command]
 pub fn start_deploy(
     app: AppHandle,
     state: State<'_, AppState>,
