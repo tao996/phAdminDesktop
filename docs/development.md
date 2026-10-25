@@ -230,10 +230,11 @@ Phase 1 已完成：
 - 本地 filesystem / SSH 的 git 同步项支持 clone / pull；
 - 本地 bundle 同步项使用 git bundle + clone/fetch/merge；
 - SSH bundle 通过 scp 上传并在远程 fetch/merge；
+- ftp 同步：本地递归复制 / SSH scp -r（本地支持 excludes）；
 - 同步项级锁防止重复执行。
 
 下一步：
 
-- ftp / SFTP 同步 / 配置渲染。
+- 配置模板渲染 / Nginx 生成。
 
 详见 [roadmap.md](roadmap.md)。

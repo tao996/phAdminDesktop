@@ -35,6 +35,7 @@ import {
   runCommand,
   startDeploy,
   syncBundleItem,
+  syncFtpItem,
   syncGitItem,
   type DeployFinished,
   type DeployStepEvent,
@@ -432,6 +433,29 @@ function App() {
     }
   };
 
+  const handleSyncFtpItem = async (itemId: string): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction("scp -r", "同步代码");
+      return;
+    }
+
+    const projectId = activeProject.id;
+    try {
+      const output = await syncFtpItem(projectId, itemId);
+      output
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .forEach((line) => appendLine(projectId, "info", line));
+      setRunsVersion((value) => value + 1);
+      setToast({ id: Date.now(), message: "ftp 同步完成" });
+    } catch (error) {
+      appendLine(projectId, "error", `ftp 同步失败：${String(error)}`);
+      setRunsVersion((value) => value + 1);
+      setToast({ id: Date.now(), message: "ftp 同步失败" });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -550,6 +574,7 @@ function App() {
             onStartDeploy={handleStartDeploy}
             onSyncItem={handleSyncItem}
             onSyncBundleItem={handleSyncBundleItem}
+            onSyncFtpItem={handleSyncFtpItem}
             onPreviewConfig={() => setShowConfig(true)}
             refreshVersion={runsVersion}
           />

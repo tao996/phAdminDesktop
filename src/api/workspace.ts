@@ -204,3 +204,10 @@ export async function syncBundleItem(
 ): Promise<string> {
   return invoke<string>("sync_bundle_item", { deploymentId, itemId });
 }
+
+export async function syncFtpItem(
+  deploymentId: string,
+  itemId: string,
+): Promise<string> {
+  return invoke<string>("sync_ftp_item", { deploymentId, itemId });
+}

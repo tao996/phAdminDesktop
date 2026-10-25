@@ -18,6 +18,37 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+fn path_excluded(relative: &str, excludes: &[String]) -> bool {
+    excludes.iter().any(|pattern| {
+        let pattern = pattern.trim().trim_matches('/');
+        !pattern.is_empty() && (relative == pattern || relative.starts_with(&format!("{pattern}/")))
+    })
+}
+
+fn copy_tree(source: &Path, destination: &Path, excludes: &[String]) -> Result<usize, String> {
+    fs::create_dir_all(destination).map_err(|error| format!("创建目录失败: {error}"))?;
+    let mut copied = 0;
+    for entry in fs::read_dir(source).map_err(|error| format!("读取目录失败: {error}"))? {
+        let entry = entry.map_err(|error| format!("读取目录项失败: {error}"))?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path_excluded(&name, excludes) {
+            continue;
+        }
+        let source_path = entry.path();
+        let destination_path = destination.join(&name);
+        let metadata =
+            fs::symlink_metadata(&source_path).map_err(|error| format!("读取文件失败: {error}"))?;
+        if metadata.is_dir() {
+            copied += copy_tree(&source_path, &destination_path, excludes)?;
+        } else if metadata.is_file() {
+            fs::copy(&source_path, &destination_path)
+                .map_err(|error| format!("复制文件失败: {error}"))?;
+            copied += 1;
+        }
+    }
+    Ok(copied)
+}
+
 fn run_git(args: &[String]) -> Result<String, String> {
     let output = Command::new("git")
         .args(args)
@@ -474,6 +505,165 @@ pub fn sync_bundle_item(
                 &run_id,
                 &deployment_id,
                 serde_json::json!(["bundle", item_id]).to_string(),
+                &status,
+                if status == "succeeded" { 0 } else { 1 },
+                log_path.as_deref(),
+                error.as_deref()
+            ],
+        );
+    }
+
+    if let Ok(mut syncs) = app.state::<AppState>().syncs.lock() {
+        syncs.remove(&lock_key);
+    }
+
+    match error {
+        Some(error) => Err(format!("{error}\n{output}")),
+        None => Ok(output),
+    }
+}
+
+#[tauri::command]
+pub fn sync_ftp_item(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    deployment_id: String,
+    item_id: String,
+) -> Result<String, String> {
+    let lock_key = format!("{deployment_id}:{item_id}:ftp");
+    {
+        let mut syncs = state
+            .syncs
+            .lock()
+            .map_err(|error| format!("同步锁被占用: {error}"))?;
+        if !syncs.insert(lock_key.clone()) {
+            return Err("该同步项正在执行".to_string());
+        }
+    }
+
+    let (local_path, remote_path, method, path, excludes_json) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        connection
+            .query_row(
+                "SELECT p.local_path, d.remote_path, i.method, i.path, i.excludes_json
+                 FROM sync_items i
+                 JOIN deployments d ON d.id = i.deployment_id
+                 JOIN projects p ON p.id = d.project_id
+                 WHERE i.id = ?1 AND i.deployment_id = ?2",
+                rusqlite::params![&item_id, &deployment_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .map_err(|error| format!("同步项不存在: {error}"))?
+    };
+
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+
+    let result = (|| -> Result<String, String> {
+        if method != "ftp" {
+            return Err(format!("当前同步项不是 ftp，method={method}"));
+        }
+        let source = if path.trim().is_empty() {
+            PathBuf::from(local_path)
+        } else {
+            PathBuf::from(local_path).join(path.trim())
+        };
+        if !source.is_dir() {
+            return Err(format!("本地源目录不存在: {}", source.display()));
+        }
+        let excludes: Vec<String> = serde_json::from_str(&excludes_json).unwrap_or_default();
+        let mut transcript = String::new();
+
+        if target.kind == "filesystem" {
+            let dest = if path.trim().is_empty() {
+                PathBuf::from(&remote_path)
+            } else {
+                PathBuf::from(&remote_path).join(path.trim())
+            };
+            transcript.push_str(&format!(
+                "$ copy {} -> {}\n",
+                source.display(),
+                dest.display()
+            ));
+            let copied = copy_tree(&source, &dest, &excludes)?;
+            transcript.push_str(&format!("copied {copied} files\n"));
+        } else {
+            let dest = if path.trim().is_empty() {
+                target.remote_path.trim_end_matches('/').to_string()
+            } else {
+                format!(
+                    "{}/{}",
+                    target.remote_path.trim_end_matches('/'),
+                    path.trim().trim_start_matches('/')
+                )
+            };
+            let parent = Path::new(&dest)
+                .parent()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| "/tmp".to_string());
+            runner::ensure_target_dir(&target, &parent)?;
+            runner::upload_dir_to_target(&target, &source, &dest)?;
+            transcript.push_str(&format!(
+                "$ scp -r {} -> {}:{}\n",
+                source.display(),
+                target.host,
+                dest
+            ));
+        }
+
+        Ok(transcript)
+    })();
+
+    let (status, output, error) = match result {
+        Ok(output) => ("succeeded".to_string(), output, None),
+        Err(error) => ("failed".to_string(), String::new(), Some(error)),
+    };
+    let run_id = format!(
+        "ftp-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0)
+    );
+    let mut log_path: Option<String> = None;
+    if let Ok(log_dir) = app.path().app_data_dir().map(|dir| dir.join("logs")) {
+        let _ = fs::create_dir_all(&log_dir);
+        let path = log_dir.join(format!("{run_id}.log"));
+        if let Ok(mut file) = File::create(&path) {
+            let _ = file.write_all(output.as_bytes());
+            if let Some(error) = &error {
+                let _ = writeln!(file, "[error] {error}");
+            }
+            log_path = Some(path.to_string_lossy().to_string());
+        }
+    }
+
+    if let Ok(connection) = app.state::<AppState>().db.lock() {
+        let _ = connection.execute(
+            "INSERT INTO runs
+                (id, deployment_id, command, args_json, status, exit_code,
+                 started_at, ended_at, log_path, error_summary)
+             VALUES (?1, ?2, 'ftp sync', ?3, ?4, ?5, datetime('now'), datetime('now'), ?6, ?7)",
+            rusqlite::params![
+                &run_id,
+                &deployment_id,
+                serde_json::json!(["ftp", item_id]).to_string(),
                 &status,
                 if status == "succeeded" { 0 } else { 1 },
                 log_path.as_deref(),

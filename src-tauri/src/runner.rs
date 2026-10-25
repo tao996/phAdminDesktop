@@ -234,12 +234,35 @@ pub(crate) fn upload_to_target(
             .map_err(|error| format!("复制 bundle 失败: {error}"));
     }
 
+    scp_target(target, local_path, remote_path, false)
+}
+
+pub(crate) fn upload_dir_to_target(
+    target: &Target,
+    local_path: &Path,
+    remote_path: &str,
+) -> Result<(), String> {
+    if target.kind == "filesystem" {
+        return Err("本地目录同步应使用本地复制".to_string());
+    }
+    scp_target(target, local_path, remote_path, true)
+}
+
+fn scp_target(
+    target: &Target,
+    local_path: &Path,
+    remote_path: &str,
+    recursive: bool,
+) -> Result<(), String> {
     let user = if target.username.trim().is_empty() {
         "root"
     } else {
         target.username.trim()
     };
     let mut command = Command::new("scp");
+    if recursive {
+        command.arg("-r");
+    }
     command
         .arg("-o")
         .arg("BatchMode=yes")
@@ -256,10 +279,10 @@ pub(crate) fn upload_to_target(
     let output = command
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("上传 bundle 失败: {error}"))?;
+        .map_err(|error| format!("上传失败: {error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("上传 bundle 失败: {}", stderr.trim()));
+        return Err(format!("上传失败: {}", stderr.trim()));
     }
     Ok(())
 }

@@ -165,6 +165,6 @@
 - [x] SSH bundle sync（scp + 远程 git）
 - [x] 同步项级并发锁
 - [x] 部署配置只读预览（sync items + JSON）
-- [ ] ftp / SFTP 同步
+- [x] ftp / SFTP 基础同步（本地复制 / scp -r）
 - [ ] 配置模板渲染 / Nginx 生成
 - [ ] PHP 回退验收

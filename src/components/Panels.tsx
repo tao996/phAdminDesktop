@@ -310,6 +310,7 @@ interface DeployPanelProps extends PanelCommonProps {
   onStartDeploy: (restartPhp: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
+  onSyncFtpItem: (itemId: string) => Promise<void>;
   onPreviewConfig: () => void;
 }
 
@@ -319,6 +320,7 @@ export function DeployPanel({
   onStartDeploy,
   onSyncItem,
   onSyncBundleItem,
+  onSyncFtpItem,
   onPreviewConfig,
 }: DeployPanelProps) {
   const [filter, setFilter] = useState<"all" | "method" | "name">("all");
@@ -547,11 +549,25 @@ export function DeployPanel({
                     <button
                       type="button"
                       className="mini-button"
-                      title="本地 filesystem：git bundle 直传"
+                      title="本地 / SSH：git bundle 直传"
                       disabled={syncingId === item.id}
                       onClick={() => {
                         setSyncingId(item.id);
                         void onSyncBundleItem(item.id).finally(() => setSyncingId(null));
+                      }}
+                    >
+                      {syncingId === item.id ? "同步中…" : "同步"}
+                    </button>
+                  )}
+                  {item.method === "ftp" && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      title="本地目录复制 / SSH scp -r"
+                      disabled={syncingId === item.id}
+                      onClick={() => {
+                        setSyncingId(item.id);
+                        void onSyncFtpItem(item.id).finally(() => setSyncingId(null));
                       }}
                     >
                       {syncingId === item.id ? "同步中…" : "同步"}

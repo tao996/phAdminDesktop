@@ -320,7 +320,8 @@ SQLite
 - 「预览配置」打开只读 ConfigModal，查看 sync_items 与 config/hooks/docker/router/nginx JSON；
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；
 - 新增 `sync_bundle_item`：本地 filesystem / SSH 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，SSH 通过 scp 上传；执行结果写入 runs 与日志；
-- ftp/SFTP 尚未接入；升级仍由 `php admin upgrade` 完成；
+- 新增 `sync_ftp_item`：本地目录递归复制 / SSH `scp -r`，本地支持 excludes；
+- ftp/SFTP 基础同步已接入；配置渲染未接入；升级仍由 `php admin upgrade` 完成；
 - 下一步：远程 git sync / bundle / ftp。
 
 参见 [roadmap.md](roadmap.md)。

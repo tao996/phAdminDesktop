@@ -27,6 +27,7 @@ interface WorkspaceProps {
   onStartDeploy: (restartPhp: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
+  onSyncFtpItem: (itemId: string) => Promise<void>;
   onPreviewConfig: () => void;
   refreshVersion: number;
 }
@@ -55,6 +56,7 @@ export function Workspace({
   onStartDeploy,
   onSyncItem,
   onSyncBundleItem,
+  onSyncFtpItem,
   onPreviewConfig,
   refreshVersion,
 }: WorkspaceProps) {
@@ -230,6 +232,7 @@ export function Workspace({
             onStartDeploy={onStartDeploy}
             onSyncItem={onSyncItem}
             onSyncBundleItem={onSyncBundleItem}
+            onSyncFtpItem={onSyncFtpItem}
             onPreviewConfig={onPreviewConfig}
           />
         )}
