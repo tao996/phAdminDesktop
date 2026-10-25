@@ -416,6 +416,8 @@ function App() {
             onAction={runAction}
             onNotify={(message) => setToast({ id: Date.now(), message })}
             onTestConnection={handleTestConnection}
+            onOpenRuns={() => setShowRuns(true)}
+            refreshVersion={runsVersion}
           />
 
           {activeProject && (

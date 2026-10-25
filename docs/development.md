@@ -218,11 +218,11 @@ Phase 1 已完成：
 - `run_command` 基础执行：本地 filesystem / 系统 `ssh`，stdout/stderr 事件 + `runs` 落库；
 - `list_runs` 任务历史 + `cancel_run`；终端「任务」面板；
 - `get_containers` 解析 `docker compose ps --format json`，Containers 面板自动刷新；
-- 概览容器统计、活动、备份仍为 mock。
+- Overview 容器统计使用 `get_containers`，最近活动使用 `list_runs`；
+- 备份仍为 mock。
 
 下一步：
 
-- 概览容器统计接入；
 - 任意终端命令；
 - 部署 / 升级编排。
 

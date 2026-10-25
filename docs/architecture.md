@@ -310,7 +310,7 @@ SQLite
 - 已实现基础任务执行：`run_command` 支持本地 filesystem 与系统 `ssh`（BatchMode + key），stdout/stderr 通过 Tauri event 流式推送，写入 `runs`；
 - 已实现 `list_runs` 任务历史与 `cancel_run`；终端「任务」面板可查看/取消；
 - 已实现 `get_containers`：执行 `docker compose ps --format json` 并解析为容器列表；Containers 面板打开时自动刷新；
-- UI 的服务器/项目/部署来自 SQLite；概览容器统计/活动/备份仍使用 mock；
-- 下一步：概览容器统计接入、任意终端命令、部署编排。
+- Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；备份仍为 mock；
+- 下一步：任意终端命令、部署编排。
 
 参见 [roadmap.md](roadmap.md)。

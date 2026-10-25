@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import type { Activity, Backup, Container, Project, Server } from "../data/mock";
-import { canUseTauri, getContainers } from "../api/workspace";
+import {
+  canUseTauri,
+  getContainers,
+  listRuns,
+  type RunRecord,
+} from "../api/workspace";
 import { Icon } from "./Icon";
 
 export type WorkspaceSection =
@@ -20,6 +25,41 @@ interface PanelCommonProps {
 interface OverviewProps extends PanelCommonProps {
   activities: Activity[];
   onSectionChange: (section: WorkspaceSection) => void;
+  onOpenRuns: () => void;
+  refreshVersion: number;
+}
+
+function formatRunTime(value: string | null) {
+  if (!value) return "—";
+  return value.length >= 16 ? value.slice(11, 16) : value;
+}
+
+function formatRunDuration(run: RunRecord) {
+  if (!run.startedAt || !run.endedAt) {
+    return run.status === "running" ? "进行中" : "—";
+  }
+  const start = Date.parse(run.startedAt.replace(" ", "T") + "Z");
+  const end = Date.parse(run.endedAt.replace(" ", "T") + "Z");
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return "—";
+  const seconds = Math.round((end - start) / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function runToActivity(run: RunRecord, projectId: string): Activity {
+  const result =
+    run.status === "succeeded"
+      ? "success"
+      : run.status === "running" || run.status === "queued"
+        ? "running"
+        : "failed";
+  return {
+    id: run.id,
+    projectId,
+    time: formatRunTime(run.startedAt),
+    action: [run.command, ...run.args].join(" "),
+    result,
+    duration: formatRunDuration(run),
+  };
 }
 
 const statusText: Record<Project["status"], string> = {
@@ -63,13 +103,70 @@ export function OverviewPanel({
   activities,
   onAction,
   onSectionChange,
+  onOpenRuns,
+  refreshVersion,
 }: OverviewProps) {
-  const running = project.containers.filter((container) => container.status === "running").length;
-  const total = project.containers.length;
-  const projectActivities = activities.filter((activity) => activity.projectId === project.id);
+  const [liveContainers, setLiveContainers] = useState<Container[] | null>(null);
+  const [liveActivities, setLiveActivities] = useState<Activity[] | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    let cancelled = false;
+    setLiveError(null);
+    setLiveContainers(null);
+    setLiveActivities(null);
+
+    void getContainers(project.id)
+      .then((items) => {
+        if (!cancelled) {
+          setLiveContainers(
+            items.map((container) => ({
+              service: container.service,
+              image: container.image,
+              status: container.status,
+              port: container.port,
+            })),
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setLiveError(error instanceof Error ? error.message : String(error));
+        }
+      });
+
+    void listRuns(project.id, 5)
+      .then((runs) => {
+        if (!cancelled) {
+          setLiveActivities(runs.map((run) => runToActivity(run, project.id)));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setLiveError(error instanceof Error ? error.message : String(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, refreshVersion]);
+
+  const containers = liveContainers ?? project.containers;
+  const running = containers.filter((container) => container.status === "running").length;
+  const total = containers.length;
+  const projectActivities =
+    liveActivities ?? activities.filter((activity) => activity.projectId === project.id);
 
   return (
     <div className="panel-stack">
+      {liveError && (
+        <div className="container-error">
+          <Icon name="alert" size={13} />
+          <span>{liveError}</span>
+        </div>
+      )}
       <div className="stat-grid">
         <StatCard
           icon="server"
@@ -106,13 +203,13 @@ export function OverviewPanel({
               <span className="section-kicker">Recent</span>
               <h3>最近活动</h3>
             </div>
-            <button type="button" className="text-button" onClick={() => onSectionChange("logs")}>
+            <button type="button" className="text-button" onClick={onOpenRuns}>
               查看全部 <Icon name="chevron-right" size={12} />
             </button>
           </div>
           <div className="activity-list">
             {projectActivities.length === 0 && (
-              <div className="empty-inline">还没有运行记录，先执行一次部署。</div>
+              <div className="empty-inline">还没有任务记录，先执行一次测试连接或部署。</div>
             )}
             {projectActivities.map((activity) => (
               <div className="activity-row" key={activity.id}>

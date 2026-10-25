@@ -85,11 +85,10 @@ Phase 1（SQLite + 只读/导入）已完成：
 - `run_command`：本地 filesystem / 系统 `ssh` 执行，stdout/stderr 事件 + `runs`；
 - `list_runs` / `cancel_run`：终端「任务」面板查看历史并取消；
 - `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
-- UI 的服务器/项目/部署来自 SQLite；概览容器统计/活动/备份仍为 mock。
+- Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock。
 
 下一步：
 
-- 概览容器统计接入；
 - 任意终端命令；
 - 部署 / 升级编排。
 

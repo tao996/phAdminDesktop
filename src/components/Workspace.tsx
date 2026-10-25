@@ -22,6 +22,8 @@ interface WorkspaceProps {
   onAction: (command: string, label: string) => void;
   onNotify: (message: string) => void;
   onTestConnection: () => void;
+  onOpenRuns: () => void;
+  refreshVersion: number;
 }
 
 const sections: { id: WorkspaceSection; label: string; icon: "activity" | "rocket" | "box" | "globe" | "database" | "file-text" }[] = [
@@ -43,6 +45,8 @@ export function Workspace({
   onAction,
   onNotify,
   onTestConnection,
+  onOpenRuns,
+  refreshVersion,
 }: WorkspaceProps) {
   const [moreOpen, setMoreOpen] = useState(
     () => new URLSearchParams(window.location.search).get("menu") === "more",
@@ -204,6 +208,8 @@ export function Workspace({
             activities={activities}
             onAction={onAction}
             onSectionChange={onSectionChange}
+            onOpenRuns={onOpenRuns}
+            refreshVersion={refreshVersion}
           />
         )}
         {section === "deploy" && (
