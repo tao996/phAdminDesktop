@@ -231,6 +231,7 @@ Phase 1 已完成：
 - “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
 - “原生部署（实验）”：前端 preflight 同步全部 + 生成/上传配置，后端只执行 compose up / nginx reload / 可选重启 PHP，跳过 legacy upgrade；
 - 部署计划末尾执行 HTTP 健康检查：`curl -fsS --max-time 10 http://127.0.0.1:<nginx_port>/`，失败则部署失败；
+- 原生部署失败时前端恢复部署前最新配置备份（容器不回滚）；
 - 原生部署 vbox 全链路已跑通（compose up + nginx reload + 容器健康）；
 - 原生部署 preflight 会从示例补齐 docker/nginx/php/mysql 运行配置与日志目录；
 - 真实 Phalcon 项目在本地 Docker 原生部署成功，HTTP 200；

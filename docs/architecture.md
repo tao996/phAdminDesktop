@@ -292,6 +292,7 @@ SQLite
 - 任务面板增加最近部署父记录（deploy_runs）展示；
 - Deploy 面板增加“同步全部”：按 sync_items 顺序执行 git / bundle / ftp，git 等待 run 结束；
 - 部署计划末尾增加健康检查：对 `127.0.0.1:<nginx_port>/` 执行 `curl -fsS --max-time 10`，4xx/5xx 或容器未起时部署判失败；
+- 原生部署失败时自动恢复部署前最近一组配置备份（仅配置，不回滚容器/镜像）；
 - Deploy 面板增加“原生部署（实验）”：先同步全部并上传配置，再走 compose up / nginx reload / 可选重启 PHP，跳过 `php admin upgrade`；legacy 模式保留为回退；
 - 原生部署 preflight 增加 `prepare_runtime_assets`：从 legacy 示例补齐 `docker/nginx/sites/default.conf`、`docker/php/php.ini`、`docker/mysql/my.cnf` 并创建日志/存储目录；
 - 原生部署已用真实 Phalcon 项目在本地 Docker 与 vbox 远程跑通；vbox 使用真实 5.23 镜像返回 HTTP 200；

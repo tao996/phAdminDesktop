@@ -39,6 +39,8 @@ import {
   applyGeneratedConfig,
   writeGeneratedConfig,
   prepareRuntimeAssets,
+  listConfigBackups,
+  restoreConfigBackup,
   syncBundleItem,
   syncFtpItem,
   syncGitItem,
@@ -383,8 +385,27 @@ function App() {
     }
 
     const projectId = activeProject.id;
+    const previousBackups = new Map<string, string>();
+    const restorePreviousConfig = async () => {
+      if (previousBackups.size === 0) return;
+      appendLine(projectId, "info", "部署失败，开始恢复部署前配置");
+      for (const [file, backup] of previousBackups) {
+        try {
+          await restoreConfigBackup(projectId, backup);
+          appendLine(projectId, "success", `已恢复 ${file}（${backup}）`);
+        } catch (error) {
+          appendLine(projectId, "error", `恢复 ${file} 失败：${String(error)}`);
+        }
+      }
+    };
     try {
       if (native) {
+        const backups = await listConfigBackups(projectId);
+        for (const backup of backups) {
+          if (!previousBackups.has(backup.file)) {
+            previousBackups.set(backup.file, backup.name);
+          }
+        }
         appendLine(projectId, "info", "原生部署：先执行同步全部与配置上传");
         await handleSyncAllItems();
         await prepareRuntimeAssets(projectId);
@@ -392,14 +413,45 @@ function App() {
         await applyGeneratedConfig(projectId, true);
         appendLine(projectId, "info", "原生部署：配置已上传，启动容器编排");
       }
-      const result = await startDeploy(projectId, restartPhp, native);
+
+      let expectedRunId = "";
+      let unlisten: (() => void) | undefined;
+      const finished = new Promise<DeployFinished>((resolve) => {
+        void listen<DeployFinished>("deploy-finished", (event) => {
+          if (expectedRunId && event.payload.deployRunId === expectedRunId) {
+            unlisten?.();
+            resolve(event.payload);
+          }
+        }).then((dispose) => {
+          unlisten = dispose;
+        });
+      });
+
+      let result;
+      try {
+        result = await startDeploy(projectId, restartPhp, native);
+        expectedRunId = result.deployRunId;
+      } catch (error) {
+        unlisten?.();
+        throw error;
+      }
       appendLine(
         projectId,
         "info",
         `部署 ${result.deployRunId} 已启动（${result.steps.length} 步）`,
       );
       setToast({ id: Date.now(), message: "部署已启动" });
+
+      if (native) {
+        const outcome = await finished;
+        if (outcome.status !== "succeeded") {
+          await restorePreviousConfig();
+        }
+      }
     } catch (error) {
+      if (native) {
+        await restorePreviousConfig();
+      }
       appendLine(projectId, "error", `部署启动失败：${String(error)}`);
       setToast({ id: Date.now(), message: "部署启动失败" });
     }
