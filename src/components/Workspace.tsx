@@ -31,6 +31,7 @@ interface WorkspaceProps {
   onAccessLog: () => void;
   onReloadNginx: () => void;
   onDbCommand: (args: string[], label: string) => void;
+  onNativeDbBackup: () => void;
   onSyncAll: () => Promise<void>;
   onPreviewConfig: () => void;
   refreshVersion: number;
@@ -64,6 +65,7 @@ export function Workspace({
   onAccessLog,
   onReloadNginx,
   onDbCommand,
+  onNativeDbBackup,
   onSyncAll,
   onPreviewConfig,
   refreshVersion,
@@ -270,6 +272,7 @@ export function Workspace({
             backups={backups}
             onAction={onAction}
             onDbCommand={onDbCommand}
+            onNativeBackup={onNativeDbBackup}
           />
         )}
         {section === "logs" && <LogsPanel project={project} />}

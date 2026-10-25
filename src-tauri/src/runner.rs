@@ -219,6 +219,23 @@ pub(crate) fn capture_target_command(
     Ok((output.status.success(), text))
 }
 
+pub(crate) fn capture_target_stdout(
+    target: &Target,
+    program: &str,
+    args: &[String],
+) -> Result<(bool, Vec<u8>, String), String> {
+    let mut command = build_command(target, program, args)?;
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("执行 {program} 失败: {error}"))?;
+    Ok((
+        output.status.success(),
+        output.stdout,
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    ))
+}
+
 pub(crate) fn upload_to_target(
     target: &Target,
     local_path: &Path,

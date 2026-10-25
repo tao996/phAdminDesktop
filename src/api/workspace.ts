@@ -336,3 +336,14 @@ export async function pruneConfigBackups(
 export async function prepareRuntimeAssets(deploymentId: string): Promise<string> {
   return invoke<string>("prepare_runtime_assets", { deploymentId });
 }
+
+export interface DatabaseBackupFile {
+  path: string;
+  bytes: number;
+}
+
+export async function backupDatabase(
+  deploymentId: string,
+): Promise<DatabaseBackupFile> {
+  return invoke<DatabaseBackupFile>("backup_database", { deploymentId });
+}

@@ -1009,9 +1009,16 @@ export function NginxPanel({
 interface DatabaseProps extends PanelCommonProps {
   backups: Backup[];
   onDbCommand: (args: string[], label: string) => void;
+  onNativeBackup: () => void;
 }
 
-export function DatabasePanel({ project, backups, onAction, onDbCommand }: DatabaseProps) {
+export function DatabasePanel({
+  project,
+  backups,
+  onAction,
+  onDbCommand,
+  onNativeBackup,
+}: DatabaseProps) {
   const [pmaDeployed, setPmaDeployed] = useState(false);
 
   return (
@@ -1022,6 +1029,13 @@ export function DatabasePanel({ project, backups, onAction, onDbCommand }: Datab
           <h3>备份与迁移</h3>
         </div>
         <div className="heading-actions">
+          <button
+            type="button"
+            className="button secondary small"
+            onClick={onNativeBackup}
+          >
+            备份到本地
+          </button>
           <button
             type="button"
             className="button secondary small"

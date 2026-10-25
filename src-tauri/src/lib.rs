@@ -1,5 +1,6 @@
 mod commands;
 mod config_apply;
+mod database;
 mod db;
 mod deploy;
 mod legacy;
@@ -56,6 +57,7 @@ pub fn run() {
             config_apply::restore_config_backup,
             config_apply::prepare_runtime_assets,
             config_apply::prune_config_backups,
+            database::backup_database,
             commands::import_legacy_config,
             commands::list_runs,
             commands::list_deploy_runs,

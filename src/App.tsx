@@ -39,6 +39,7 @@ import {
   applyGeneratedConfig,
   writeGeneratedConfig,
   prepareRuntimeAssets,
+  backupDatabase,
   listConfigBackups,
   restoreConfigBackup,
   syncBundleItem,
@@ -637,6 +638,26 @@ function App() {
     }
   };
 
+  const handleNativeDbBackup = async (): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction("mysqldump", "备份数据库");
+      return;
+    }
+    try {
+      const result = await backupDatabase(activeProject.id);
+      appendLine(
+        activeProject.id,
+        "success",
+        `数据库备份完成：${result.path}（${result.bytes} bytes）`,
+      );
+      setToast({ id: Date.now(), message: "数据库备份完成" });
+    } catch (error) {
+      appendLine(activeProject.id, "error", `数据库备份失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "数据库备份失败" });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -760,6 +781,7 @@ function App() {
             onAccessLog={handleNginxAccessLog}
             onReloadNginx={handleNginxReload}
             onDbCommand={handleDbCommand}
+            onNativeDbBackup={handleNativeDbBackup}
             onPreviewConfig={() => setShowConfig(true)}
             refreshVersion={runsVersion}
           />
