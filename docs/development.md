@@ -233,6 +233,8 @@ Phase 1 已完成：
 - 原生部署 vbox 全链路已跑通（compose up + nginx reload + 容器健康）；
 - 原生部署 preflight 会从示例补齐 docker/nginx/php/mysql 运行配置与日志目录；
 - 真实 Phalcon 项目在本地 Docker 原生部署成功，HTTP 200；
+- 真实 Phalcon 项目在 vbox 远程原生部署成功（compose up + nginx reload；镜像用 5.13 临时替代 5.23）；
+- vbox 远程目标目录不存在时，`ensure_target_dir` 不再依赖 `cd`，而是直接 `mkdir -p`；
 - `.env` 密码取自 `env_vars` 的 MYSQL_PASSWORD / REDIS_PASSWORD；
 - SSH 远程命令统一作为单个 shell 字符串传递，修复 `cd` 未生效导致 compose 找不到配置文件的问题。
 - 部署历史展示最近 deploy_runs；Deploy 面板展示真实计划；

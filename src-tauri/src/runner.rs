@@ -115,35 +115,15 @@ pub(crate) fn load_target(
         .map_err(|error| format!("部署不存在或服务器不可用: {error}"))
 }
 
-fn build_command(target: &Target, program: &str, args: &[String]) -> Result<Command, String> {
-    if target.kind == "filesystem" {
-        let mut command = Command::new(program);
-        command.args(args);
-        if !target.remote_path.trim().is_empty() {
-            command.current_dir(target.remote_path.trim());
-        }
-        return Ok(command);
-    }
-
+fn build_ssh_command(target: &Target, remote: &str) -> Result<Command, String> {
     if target.host.trim().is_empty() {
         return Err("服务器未配置 host".to_string());
     }
-
     let user = if target.username.trim().is_empty() {
         "root"
     } else {
         target.username.trim()
     };
-    let remote = format!(
-        "cd {} && {} {}",
-        shell_quote(target.remote_path.trim()),
-        shell_quote(program),
-        args.iter()
-            .map(|arg| shell_quote(arg))
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
-
     let mut command = Command::new("ssh");
     command
         .arg("-o")
@@ -159,8 +139,30 @@ fn build_command(target: &Target, program: &str, args: &[String]) -> Result<Comm
         .arg("-p")
         .arg(target.port.to_string())
         .arg(format!("{user}@{}", target.host.trim()))
-        .arg(&remote);
+        .arg(remote);
     Ok(command)
+}
+
+fn build_command(target: &Target, program: &str, args: &[String]) -> Result<Command, String> {
+    if target.kind == "filesystem" {
+        let mut command = Command::new(program);
+        command.args(args);
+        if !target.remote_path.trim().is_empty() {
+            command.current_dir(target.remote_path.trim());
+        }
+        return Ok(command);
+    }
+
+    let remote = format!(
+        "cd {} && {} {}",
+        shell_quote(target.remote_path.trim()),
+        shell_quote(program),
+        args.iter()
+            .map(|arg| shell_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    build_ssh_command(target, &remote)
 }
 
 pub(crate) fn target_path_exists(target: &Target, path: &str) -> Result<bool, String> {
@@ -186,7 +188,8 @@ pub(crate) fn ensure_target_dir(target: &Target, path: &str) -> Result<(), Strin
         return std::fs::create_dir_all(path).map_err(|error| format!("创建目录失败: {error}"));
     }
 
-    let mut command = build_command(target, "mkdir", &["-p".to_string(), path.to_string()])?;
+    let remote = format!("mkdir -p {}", shell_quote(path));
+    let mut command = build_ssh_command(target, &remote)?;
     let output = command
         .stdin(Stdio::null())
         .output()
