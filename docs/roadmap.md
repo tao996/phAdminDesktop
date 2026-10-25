@@ -177,5 +177,6 @@
 - [x] Deploy 面板“同步全部”（顺序执行并等待 git run；vbox 远程链路实测）
 - [x] 模板与 legacy 逐行对齐（env/compose/config.php）
 - [ ] 远程配置写入产品策略
-- [ ] 原生 sync / 配置上传接入部署启动
+- [x] 原生部署模式（实验）：同步全部 + 配置上传 + compose/nginx/restart
+- [ ] 原生部署 vbox 全链路回归
 - [ ] PHP 回退验收

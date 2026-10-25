@@ -60,9 +60,10 @@ fn next_deploy_id() -> String {
     )
 }
 
-fn build_plan(project_name: &str, restart_php: bool) -> Vec<DeployStep> {
-    let mut steps = vec![
-        DeployStep {
+fn build_plan(project_name: &str, restart_php: bool, native: bool) -> Vec<DeployStep> {
+    let mut steps = Vec::new();
+    if !native {
+        steps.push(DeployStep {
             key: "upgrade".to_string(),
             title: "同步代码 / 生成配置".to_string(),
             program: "php".to_string(),
@@ -71,27 +72,27 @@ fn build_plan(project_name: &str, restart_php: bool) -> Vec<DeployStep> {
                 format!("app:{project_name}"),
                 "upgrade".to_string(),
             ],
-        },
-        DeployStep {
-            key: "compose-up".to_string(),
-            title: "启动 / 更新容器".to_string(),
-            program: "docker".to_string(),
-            args: vec!["compose".to_string(), "up".to_string(), "-d".to_string()],
-        },
-        DeployStep {
-            key: "nginx-reload".to_string(),
-            title: "重载 Nginx".to_string(),
-            program: "docker".to_string(),
-            args: vec![
-                "compose".to_string(),
-                "exec".to_string(),
-                "nginx".to_string(),
-                "nginx".to_string(),
-                "-s".to_string(),
-                "reload".to_string(),
-            ],
-        },
-    ];
+        });
+    }
+    steps.push(DeployStep {
+        key: "compose-up".to_string(),
+        title: "启动 / 更新容器".to_string(),
+        program: "docker".to_string(),
+        args: vec!["compose".to_string(), "up".to_string(), "-d".to_string()],
+    });
+    steps.push(DeployStep {
+        key: "nginx-reload".to_string(),
+        title: "重载 Nginx".to_string(),
+        program: "docker".to_string(),
+        args: vec![
+            "compose".to_string(),
+            "exec".to_string(),
+            "nginx".to_string(),
+            "nginx".to_string(),
+            "-s".to_string(),
+            "reload".to_string(),
+        ],
+    });
 
     if restart_php {
         steps.push(DeployStep {
@@ -242,6 +243,7 @@ pub fn preview_deploy_plan(
     state: State<'_, AppState>,
     deployment_id: String,
     restart_php: bool,
+    native: bool,
 ) -> Result<Vec<DeployStep>, String> {
     let connection = state
         .db
@@ -257,7 +259,7 @@ pub fn preview_deploy_plan(
             |row| row.get::<_, String>(0),
         )
         .map_err(|error| format!("部署不存在: {error}"))?;
-    Ok(build_plan(&project_name, restart_php))
+    Ok(build_plan(&project_name, restart_php, native))
 }
 
 #[tauri::command]
@@ -266,6 +268,7 @@ pub fn start_deploy(
     state: State<'_, AppState>,
     deployment_id: String,
     restart_php: bool,
+    native: bool,
 ) -> Result<DeployStart, String> {
     let project_name = {
         let connection = state
@@ -284,7 +287,7 @@ pub fn start_deploy(
             .map_err(|error| format!("部署不存在: {error}"))?
     };
 
-    let steps = build_plan(&project_name, restart_php);
+    let steps = build_plan(&project_name, restart_php, native);
     let deploy_run_id = next_deploy_id();
     let plan_json =
         serde_json::to_string(&steps).map_err(|error| format!("部署计划编码失败: {error}"))?;
@@ -339,7 +342,7 @@ mod tests {
 
     #[test]
     fn plan_includes_restart_only_when_requested() {
-        let base = build_plan("demo", false);
+        let base = build_plan("demo", false, false);
         assert_eq!(
             base.iter()
                 .map(|step| step.key.as_str())
@@ -354,8 +357,21 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        let with_restart = build_plan("demo", true);
+        let with_restart = build_plan("demo", true, false);
         assert_eq!(with_restart.len(), 4);
         assert_eq!(with_restart[3].key, "restart-php");
+    }
+
+    #[test]
+    fn native_plan_skips_legacy_upgrade() {
+        let native = build_plan("demo", false, true);
+        assert_eq!(
+            native
+                .iter()
+                .map(|step| step.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["compose-up", "nginx-reload"]
+        );
+        assert!(native.iter().all(|step| step.program != "php"));
     }
 }

@@ -36,6 +36,8 @@ import {
   listRuns,
   runCommand,
   startDeploy,
+  applyGeneratedConfig,
+  writeGeneratedConfig,
   syncBundleItem,
   syncFtpItem,
   syncGitItem,
@@ -372,7 +374,7 @@ function App() {
     handleCommand(command);
   };
 
-  const handleStartDeploy = async (restartPhp: boolean) => {
+  const handleStartDeploy = async (restartPhp: boolean, native: boolean) => {
     if (!activeProject) return;
     if (!canUseTauri()) {
       runAction(`php admin app:${activeProject.name} upgrade`, "部署 / 升级");
@@ -381,7 +383,14 @@ function App() {
 
     const projectId = activeProject.id;
     try {
-      const result = await startDeploy(projectId, restartPhp);
+      if (native) {
+        appendLine(projectId, "info", "原生部署：先执行同步全部与配置上传");
+        await handleSyncAllItems();
+        await writeGeneratedConfig(projectId);
+        await applyGeneratedConfig(projectId, true);
+        appendLine(projectId, "info", "原生部署：配置已上传，启动容器编排");
+      }
+      const result = await startDeploy(projectId, restartPhp, native);
       appendLine(
         projectId,
         "info",

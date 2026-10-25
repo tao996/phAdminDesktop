@@ -229,6 +229,7 @@ Phase 1 已完成：
 - 配置上传：逐文件回读校验，覆盖前 `.bak-<millis>`；支持备份列表、恢复、可配置保留数量清理；
 - 模板 `env.example` / `docker-compose.yaml` / `config.php.template` 与 legacy 逐行对齐；
 - “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
+- “原生部署（实验）”：前端 preflight 同步全部 + 生成/上传配置，后端只执行 compose up / nginx reload / 可选重启 PHP，跳过 legacy upgrade；
 - 部署历史展示最近 deploy_runs；Deploy 面板展示真实计划；
 - vbox 已验证远程 git / bundle / ftp / 配置上传 / 备份恢复 / 同步全部。
 

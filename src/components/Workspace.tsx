@@ -24,7 +24,7 @@ interface WorkspaceProps {
   onTestConnection: () => void;
   onOpenRuns: () => void;
   onExecuteCommand: (command: string) => void;
-  onStartDeploy: (restartPhp: boolean) => void;
+  onStartDeploy: (restartPhp: boolean, native: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
   onSyncFtpItem: (itemId: string) => Promise<void>;

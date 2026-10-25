@@ -198,15 +198,21 @@ export async function getRunLog(runId: string): Promise<string> {
 export async function startDeploy(
   deploymentId: string,
   restartPhp: boolean,
+  native: boolean,
 ): Promise<DeployStart> {
-  return invoke<DeployStart>("start_deploy", { deploymentId, restartPhp });
+  return invoke<DeployStart>("start_deploy", { deploymentId, restartPhp, native });
 }
 
 export async function previewDeployPlan(
   deploymentId: string,
   restartPhp: boolean,
+  native: boolean,
 ): Promise<DeployStep[]> {
-  return invoke<DeployStep[]>("preview_deploy_plan", { deploymentId, restartPhp });
+  return invoke<DeployStep[]>("preview_deploy_plan", {
+    deploymentId,
+    restartPhp,
+    native,
+  });
 }
 
 export async function loadDeploymentConfig(

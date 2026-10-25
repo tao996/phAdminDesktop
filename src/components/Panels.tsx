@@ -309,7 +309,7 @@ export function OverviewPanel({
 }
 
 interface DeployPanelProps extends PanelCommonProps {
-  onStartDeploy: (restartPhp: boolean) => void;
+  onStartDeploy: (restartPhp: boolean, native: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
   onSyncFtpItem: (itemId: string) => Promise<void>;
@@ -334,6 +334,7 @@ export function DeployPanel({
   const [full, setFull] = useState(false);
   const [updateConfig, setUpdateConfig] = useState(false);
   const [restart, setRestart] = useState(true);
+  const [native, setNative] = useState(false);
   const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -370,7 +371,7 @@ export function DeployPanel({
   useEffect(() => {
     if (!canUseTauri()) return;
     let cancelled = false;
-    void previewDeployPlan(project.id, restart)
+    void previewDeployPlan(project.id, restart, native)
       .then((value) => {
         if (!cancelled) setPlan(value);
       })
@@ -380,7 +381,7 @@ export function DeployPanel({
     return () => {
       cancelled = true;
     };
-  }, [project.id, restart]);
+  }, [project.id, restart, native]);
 
   const filterPart =
     filter === "method" ? ` method=${method}` : filter === "name" ? ` name=${entry}` : "";
@@ -517,6 +518,17 @@ export function DeployPanel({
               <small>追加执行 dc:restart:php</small>
             </span>
           </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={native}
+              onChange={(event) => setNative(event.target.checked)}
+            />
+            <span>
+              原生部署（实验）
+              <small>先同步全部并上传配置，跳过 php admin upgrade</small>
+            </span>
+          </label>
 
           <div className="form-actions">
             <button
@@ -543,11 +555,11 @@ export function DeployPanel({
               type="button"
               className="button primary"
               onClick={() => {
-                onStartDeploy(restart);
+                onStartDeploy(restart, native);
               }}
             >
               <Icon name="rocket" size={14} />
-              开始升级
+              {native ? "开始部署" : "开始升级"}
             </button>
           </div>
 
@@ -632,7 +644,9 @@ export function DeployPanel({
           <div className="command-hint">
             <Icon name="alert" size={13} />
             {canUseTauri()
-              ? "Tauri 模式按步骤执行：升级 → 容器 → Nginx；勾选重启时最后重启 PHP，任一步失败即中止。"
+              ? native
+                ? "原生部署：先同步全部并上传配置，再执行容器启动与 Nginx reload；不再调用 php admin upgrade。"
+                : "Tauri 模式按步骤执行：升级 → 容器 → Nginx；勾选重启时最后重启 PHP，任一步失败即中止。"
               : "当前为 UI 预览，按钮只模拟执行并把命令写入终端，不会连接服务器。"}
           </div>
           <div className="step-list">
