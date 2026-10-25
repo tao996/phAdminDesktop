@@ -313,6 +313,7 @@ interface DeployPanelProps extends PanelCommonProps {
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
   onSyncFtpItem: (itemId: string) => Promise<void>;
+  onSyncAll: () => Promise<void>;
   onPreviewConfig: () => void;
 }
 
@@ -323,8 +324,10 @@ export function DeployPanel({
   onSyncItem,
   onSyncBundleItem,
   onSyncFtpItem,
+  onSyncAll,
   onPreviewConfig,
 }: DeployPanelProps) {
+  const [syncingAll, setSyncingAll] = useState(false);
   const [filter, setFilter] = useState<"all" | "method" | "name">("all");
   const [method, setMethod] = useState("git");
   const [entry, setEntry] = useState("主仓库");
@@ -516,6 +519,18 @@ export function DeployPanel({
           </label>
 
           <div className="form-actions">
+            <button
+              type="button"
+              className="button secondary"
+              disabled={syncingAll || syncItems.length === 0}
+              onClick={() => {
+                setSyncingAll(true);
+                void onSyncAll().finally(() => setSyncingAll(false));
+              }}
+            >
+              <Icon name="refresh" size={14} />
+              {syncingAll ? "同步全部中…" : "同步全部"}
+            </button>
             <button
               type="button"
               className="button secondary"

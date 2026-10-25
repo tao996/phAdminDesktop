@@ -28,6 +28,7 @@ interface WorkspaceProps {
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
   onSyncFtpItem: (itemId: string) => Promise<void>;
+  onSyncAll: () => Promise<void>;
   onPreviewConfig: () => void;
   refreshVersion: number;
 }
@@ -57,6 +58,7 @@ export function Workspace({
   onSyncItem,
   onSyncBundleItem,
   onSyncFtpItem,
+  onSyncAll,
   onPreviewConfig,
   refreshVersion,
 }: WorkspaceProps) {
@@ -233,6 +235,7 @@ export function Workspace({
             onSyncItem={onSyncItem}
             onSyncBundleItem={onSyncBundleItem}
             onSyncFtpItem={onSyncFtpItem}
+            onSyncAll={onSyncAll}
             onPreviewConfig={onPreviewConfig}
           />
         )}

@@ -32,6 +32,8 @@ import {
   canUseTauri,
   importLegacyConfig,
   loadWorkspace,
+  loadDeploymentConfig,
+  listRuns,
   runCommand,
   startDeploy,
   syncBundleItem,
@@ -456,6 +458,36 @@ function App() {
     }
   };
 
+  const handleSyncAllItems = async (): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction("sync all", "同步全部");
+      return;
+    }
+    const projectId = activeProject.id;
+    try {
+      const config = await loadDeploymentConfig(projectId);
+      for (const item of config.syncItems) {
+        if (item.method === "git") {
+          await handleSyncItem(item.id);
+          for (let attempt = 0; attempt < 240; attempt += 1) {
+            const runs = await listRuns(projectId, 20);
+            if (!runs.some((run) => run.status === "running")) break;
+            await new Promise((resolve) => window.setTimeout(resolve, 500));
+          }
+        } else if (item.method === "bundle") {
+          await handleSyncBundleItem(item.id);
+        } else if (item.method === "ftp") {
+          await handleSyncFtpItem(item.id);
+        }
+      }
+      setToast({ id: Date.now(), message: "全部同步完成" });
+    } catch (error) {
+      appendLine(projectId, "error", `全部同步失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "全部同步失败" });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -575,6 +607,7 @@ function App() {
             onSyncItem={handleSyncItem}
             onSyncBundleItem={handleSyncBundleItem}
             onSyncFtpItem={handleSyncFtpItem}
+            onSyncAll={handleSyncAllItems}
             onPreviewConfig={() => setShowConfig(true)}
             refreshVersion={runsVersion}
           />
