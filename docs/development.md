@@ -217,11 +217,12 @@ Phase 1 已完成：
 - `domains/env_vars/sync_items/deployment_settings/runs` 表；
 - `run_command` 基础执行：本地 filesystem / 系统 `ssh`，stdout/stderr 事件 + `runs` 落库；
 - `list_runs` 任务历史 + `cancel_run`；终端「任务」面板；
-- 容器、活动、备份仍为 mock。
+- `get_containers` 解析 `docker compose ps --format json`，Containers 面板自动刷新；
+- 概览容器统计、活动、备份仍为 mock。
 
 下一步：
 
-- 容器状态解析（`docker compose ps --format json`）；
+- 概览容器统计接入；
 - 任意终端命令；
 - 部署 / 升级编排。
 

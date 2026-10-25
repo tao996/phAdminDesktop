@@ -37,7 +37,8 @@ pub fn run() {
             commands::import_legacy_config,
             commands::list_runs,
             runner::run_command,
-            runner::cancel_run
+            runner::cancel_run,
+            runner::get_containers
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

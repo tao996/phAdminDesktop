@@ -1,5 +1,6 @@
-import { useState } from "react";
-import type { Activity, Backup, Project, Server } from "../data/mock";
+import { useEffect, useState } from "react";
+import type { Activity, Backup, Container, Project, Server } from "../data/mock";
+import { canUseTauri, getContainers } from "../api/workspace";
 import { Icon } from "./Icon";
 
 export type WorkspaceSection =
@@ -402,8 +403,47 @@ export function DeployPanel({ project, server, onAction }: PanelCommonProps) {
 }
 
 export function ContainersPanel({ project, onAction }: PanelCommonProps) {
-  const running = project.containers.filter((container) => container.status === "running").length;
+  const [containers, setContainers] = useState<Container[]>(project.containers);
+  const [refreshing, setRefreshing] = useState(false);
+  const [containerError, setContainerError] = useState<string | null>(null);
+  const running = containers.filter((container) => container.status === "running").length;
   const allMenuOpen = new URLSearchParams(window.location.search).get("all") === "open";
+
+  useEffect(() => {
+    setContainers(project.containers);
+    setContainerError(null);
+  }, [project.id, project.containers]);
+
+  useEffect(() => {
+    if (canUseTauri()) {
+      void refreshContainers();
+    }
+  }, [project.id]);
+
+  const refreshContainers = async () => {
+    if (!canUseTauri()) {
+      onAction(`php admin app:${project.name} dc:status`, "刷新容器状态");
+      return;
+    }
+
+    setRefreshing(true);
+    setContainerError(null);
+    try {
+      const data = await getContainers(project.id);
+      setContainers(
+        data.map((container) => ({
+          service: container.service,
+          image: container.image,
+          status: container.status,
+          port: container.port,
+        })),
+      );
+    } catch (error) {
+      setContainerError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div className="panel-stack">
@@ -415,7 +455,7 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
           </div>
           <div className="heading-actions">
             <span className="muted-caption">
-              {running}/{project.containers.length || 0} running
+              {running}/{containers.length || 0} running
             </span>
             <details className="all-actions" open={allMenuOpen || undefined}>
               <summary className="button secondary small" title="全部启动 / 重启 / 停止">
@@ -460,10 +500,11 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
             <button
               type="button"
               className="button secondary small"
-              onClick={() => onAction(`php admin app:${project.name} dc:status`, "刷新容器状态")}
+              disabled={refreshing}
+              onClick={() => void refreshContainers()}
             >
               <Icon name="refresh" size={13} />
-              刷新
+              {refreshing ? "刷新中…" : "刷新"}
             </button>
           </div>
         </div>
@@ -479,7 +520,14 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
           <span className="tag latest">最新</span>
         </div>
 
-        {project.containers.length === 0 ? (
+        {containerError && (
+          <div className="container-error">
+            <Icon name="alert" size={13} />
+            <span>{containerError}</span>
+          </div>
+        )}
+
+        {containers.length === 0 ? (
           <div className="empty-state">
             <span className="empty-icon">
               <Icon name="box" size={20} />
@@ -508,7 +556,7 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
                 </tr>
               </thead>
               <tbody>
-                {project.containers.map((container) => (
+                {containers.map((container) => (
                   <tr key={container.service}>
                     <td>
                       <span className="service-name">

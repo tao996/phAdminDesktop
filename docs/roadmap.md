@@ -151,6 +151,8 @@
 - [x] sync_items / runs 表（schema + 导入）
 - [x] 基础任务执行（本地/ssh + stdout/stderr + runs）
 - [x] 任务历史面板 / 取消按钮
+- [x] 容器状态解析（`docker compose ps --format json`）
+- [ ] 概览容器统计接入
 - [ ] 任意终端命令（白名单扩展）
 - [ ] 部署核心
 - [ ] PHP 回退验收

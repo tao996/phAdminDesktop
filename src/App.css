@@ -1412,6 +1412,20 @@ select:focus-visible,
   font-size: 9px;
 }
 
+.container-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 107, 122, 0.2);
+  border-radius: 7px;
+  background: rgba(255, 107, 122, 0.06);
+  color: #ff9ba5;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .tag.latest {
   border-color: rgba(61, 220, 151, 0.22);
   background: rgba(61, 220, 151, 0.08);

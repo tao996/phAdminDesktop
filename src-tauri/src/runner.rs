@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::params;
 use serde::Serialize;
+use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::AppState;
@@ -32,6 +33,18 @@ pub struct RunFinished {
     pub deployment_id: String,
     pub exit_code: Option<i32>,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerInfo {
+    pub service: String,
+    pub name: String,
+    pub image: String,
+    pub status: String,
+    pub state: String,
+    pub health: String,
+    pub port: String,
 }
 
 #[derive(Debug)]
@@ -131,6 +144,150 @@ fn build_command(target: &Target, program: &str, args: &[String]) -> Result<Comm
         .arg("-lc")
         .arg(remote);
     Ok(command)
+}
+
+fn string_field(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn display_port(value: &Value) -> String {
+    if let Some(publishers) = value.get("Publishers").and_then(Value::as_array) {
+        for publisher in publishers {
+            if let Some(port) = publisher.get("PublishedPort").and_then(Value::as_u64)
+                && port > 0
+            {
+                return port.to_string();
+            }
+        }
+    }
+
+    let ports = string_field(value, "Ports");
+    if ports.trim().is_empty() {
+        return "-".to_string();
+    }
+    let first = ports.split(',').next().unwrap_or("").trim();
+    if !first.contains("->") {
+        return "-".to_string();
+    }
+    let host = first.split("->").next().unwrap_or(first);
+    host.rsplit(':')
+        .next()
+        .filter(|port| !port.is_empty())
+        .unwrap_or("-")
+        .to_string()
+}
+
+fn container_from_value(value: &Value) -> Option<ContainerInfo> {
+    let service = string_field(value, "Service");
+    let name = {
+        let name = string_field(value, "Name");
+        if name.is_empty() {
+            string_field(value, "Names")
+        } else {
+            name
+        }
+    };
+    let image = string_field(value, "Image");
+    if service.is_empty() && name.is_empty() && image.is_empty() {
+        return None;
+    }
+
+    let state = {
+        let state = string_field(value, "State");
+        if state.is_empty() {
+            string_field(value, "Status")
+        } else {
+            state
+        }
+    };
+    let status_text = string_field(value, "Status");
+    let status = if state.eq_ignore_ascii_case("running")
+        || status_text.to_ascii_lowercase().starts_with("up")
+    {
+        "running"
+    } else {
+        "stopped"
+    };
+
+    Some(ContainerInfo {
+        service: if service.is_empty() {
+            name.clone()
+        } else {
+            service
+        },
+        name,
+        image,
+        status: status.to_string(),
+        state,
+        health: string_field(value, "Health"),
+        port: display_port(value),
+    })
+}
+
+fn parse_containers(raw: &str) -> Result<Vec<ContainerInfo>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let values: Vec<Value> = if trimmed.starts_with('[') {
+        serde_json::from_str(trimmed).map_err(|error| format!("解析容器 JSON 失败: {error}"))?
+    } else {
+        trimmed
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(serde_json::from_str)
+            .collect::<Result<Vec<Value>, _>>()
+            .map_err(|error| format!("解析容器 JSON 行失败: {error}"))?
+    };
+
+    Ok(values.iter().filter_map(container_from_value).collect())
+}
+
+fn collect_containers(target: &Target) -> Result<Vec<ContainerInfo>, String> {
+    let args = vec![
+        "compose".to_string(),
+        "ps".to_string(),
+        "--format".to_string(),
+        "json".to_string(),
+    ];
+    let mut command = build_command(target, "docker", &args)?;
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("执行 docker compose ps 失败: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        return Err(if detail.is_empty() {
+            "docker compose ps 执行失败".to_string()
+        } else {
+            format!("docker compose ps 执行失败: {detail}")
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_containers(&stdout)
+}
+
+#[tauri::command]
+pub fn get_containers(
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<Vec<ContainerInfo>, String> {
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        load_target(&connection, &deployment_id)?
+    };
+    collect_containers(&target)
 }
 
 fn stream_pipe<R: Read + Send + 'static>(
@@ -376,5 +533,57 @@ mod tests {
         assert!(args.contains(&"C:/keys/id_ed25519".to_string()));
         assert!(args.contains(&"deploy@example.com".to_string()));
         assert!(args.contains(&"2222".to_string()));
+    }
+
+    #[test]
+    fn parses_compose_json_array() {
+        let raw = r#"[
+          {"Service":"nginx","Name":"demo-nginx-1","Image":"nginx:alpine","State":"running","Status":"Up 2 minutes","Health":"healthy","Publishers":[{"PublishedPort":8071}]},
+          {"Service":"php","Name":"demo-php-1","Image":"authus/phalcon:5.23.0","State":"exited","Status":"Exited (0) 1 minute ago","Ports":"0.0.0.0:9000->9000/tcp"},
+          {"Service":"redis","Name":"demo-redis-1","Image":"redis:7","State":"running","Status":"Up 2 minutes","Ports":"6379/tcp"}
+        ]"#;
+        let containers = parse_containers(raw).expect("parse");
+        assert_eq!(containers.len(), 3);
+        assert_eq!(containers[0].service, "nginx");
+        assert_eq!(containers[0].status, "running");
+        assert_eq!(containers[0].health, "healthy");
+        assert_eq!(containers[0].port, "8071");
+        assert_eq!(containers[1].status, "stopped");
+        assert_eq!(containers[1].port, "9000");
+        assert_eq!(containers[2].port, "-");
+    }
+
+    #[test]
+    fn parses_compose_json_lines() {
+        let raw = concat!(
+            "{\"Service\":\"nginx\",\"Name\":\"demo-nginx-1\",\"Image\":\"nginx:alpine\",\"Status\":\"Up 1 minute\"}\n",
+            "{\"Service\":\"redis\",\"Name\":\"demo-redis-1\",\"Image\":\"redis:7\",\"Status\":\"Exited (0)\"}\n"
+        );
+        let containers = parse_containers(raw).expect("parse");
+        assert_eq!(containers.len(), 2);
+        assert_eq!(containers[0].status, "running");
+        assert_eq!(containers[1].status, "stopped");
+    }
+
+    #[test]
+    #[ignore = "needs a local docker compose project via PHADMIN_COMPOSE_DIR"]
+    fn collects_real_compose_containers() {
+        let path = std::env::var("PHADMIN_COMPOSE_DIR")
+            .expect("set PHADMIN_COMPOSE_DIR to a running compose project");
+        let target = Target {
+            remote_path: path,
+            kind: "filesystem".to_string(),
+            host: String::new(),
+            port: 22,
+            username: String::new(),
+            key_path: String::new(),
+        };
+        let containers = collect_containers(&target).expect("collect containers");
+        assert!(!containers.is_empty(), "expected at least one container");
+        assert!(
+            containers
+                .iter()
+                .any(|container| container.status == "running")
+        );
     }
 }

@@ -70,6 +70,16 @@ export interface RunRecord {
   errorSummary: string | null;
 }
 
+export interface ContainerInfo {
+  service: string;
+  name: string;
+  image: string;
+  status: "running" | "stopped";
+  state: string;
+  health: string;
+  port: string;
+}
+
 export function canUseTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -99,4 +109,10 @@ export async function listRuns(
   limit = 50,
 ): Promise<RunRecord[]> {
   return invoke<RunRecord[]>("list_runs", { deploymentId, limit });
+}
+
+export async function getContainers(
+  deploymentId: string,
+): Promise<ContainerInfo[]> {
+  return invoke<ContainerInfo[]>("get_containers", { deploymentId });
 }
