@@ -234,6 +234,20 @@ export interface GeneratedFiles {
   composePath: string;
 }
 
+export interface GeneratedStatus {
+  directory: string;
+  exists: boolean;
+  envChanged: boolean;
+  nginxChanged: boolean;
+  composeChanged: boolean;
+}
+
+export async function generatedConfigStatus(
+  deploymentId: string,
+): Promise<GeneratedStatus> {
+  return invoke<GeneratedStatus>("generated_config_status", { deploymentId });
+}
+
 export async function renderComposePreview(): Promise<string> {
   return invoke<string>("render_compose_preview");
 }

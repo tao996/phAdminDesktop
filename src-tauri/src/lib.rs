@@ -46,6 +46,7 @@ pub fn run() {
             render::render_nginx_preview,
             render::render_compose_preview,
             render::write_generated_config,
+            render::generated_config_status,
             commands::import_legacy_config,
             commands::list_runs,
             commands::read_run_log,

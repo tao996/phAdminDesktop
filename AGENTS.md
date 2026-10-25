@@ -95,7 +95,7 @@ Phase 1（SQLite + 只读/导入）已完成：
 - 本地 filesystem / SSH git 同步项支持 clone / pull（`sync_git_item`）；同步项级锁；
 - 本地 / SSH bundle 同步支持 git bundle（`sync_bundle_item`）；ftp/SFTP 基础同步（`sync_ftp_item`）；
 - 配置预览弹窗只读展示 sync items 与 settings JSON；
-- rendered .env / nginx / compose 预览，并可写入本地 generated 目录（不写远程）。
+- rendered .env / nginx / compose 预览，可写入本地 generated 并检测变更状态。
 
 下一步：
 

@@ -7,7 +7,9 @@ import {
   renderNginxPreview,
   renderComposePreview,
   writeGeneratedConfig,
+  generatedConfigStatus,
   type GeneratedFiles,
+  type GeneratedStatus,
   type DeploymentConfig,
 } from "../api/workspace";
 import { Icon } from "./Icon";
@@ -44,12 +46,25 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [renderedNginx, setRenderedNginx] = useState<string | null>(null);
   const [renderedCompose, setRenderedCompose] = useState<string | null>(null);
   const [generated, setGenerated] = useState<GeneratedFiles | null>(null);
+  const [generatedStatus, setGeneratedStatus] = useState<GeneratedStatus | null>(null);
   const [generating, setGenerating] = useState(false);
+
+  const refreshStatus = () => {
+    if (!canUseTauri()) return;
+    void generatedConfigStatus(project.id)
+      .then(setGeneratedStatus)
+      .catch(() => setGeneratedStatus(null));
+  };
+
+  useEffect(() => {
+    refreshStatus();
+  }, [project.id]);
 
   const generate = async () => {
     setGenerating(true);
     try {
       setGenerated(await writeGeneratedConfig(project.id));
+      refreshStatus();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -199,6 +214,17 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                     {generating ? "生成中…" : "写入本地生成目录"}
                   </button>
                   {generated && <code>{generated.directory}</code>}
+                  {generatedStatus && (
+                    <span className="tag">
+                      {!generatedStatus.exists
+                        ? "未生成"
+                        : generatedStatus.envChanged ||
+                            generatedStatus.nginxChanged ||
+                            generatedStatus.composeChanged
+                          ? "有变更"
+                          : "已同步"}
+                    </span>
+                  )}
                 </div>
               )}
               {active === "rendered" ? (

@@ -161,6 +161,92 @@ pub struct GeneratedFiles {
     pub compose_path: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedStatus {
+    pub directory: String,
+    pub exists: bool,
+    pub env_changed: bool,
+    pub nginx_changed: bool,
+    pub compose_changed: bool,
+}
+
+#[tauri::command]
+pub fn generated_config_status(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<GeneratedStatus, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    let (project, remote_path, nginx_port, ssl, domain) = connection
+        .query_row(
+            "SELECT p.name, d.remote_path, d.nginx_port, d.ssl, d.domain
+             FROM deployments d
+             JOIN projects p ON p.id = d.project_id
+             WHERE d.id = ?1",
+            [&deployment_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .map_err(|error| format!("部署不存在: {error}"))?;
+
+    let mut domains = Vec::new();
+    let mut statement = connection
+        .prepare("SELECT domain FROM domains WHERE deployment_id = ?1 ORDER BY sort")
+        .map_err(|error| format!("读取域名失败: {error}"))?;
+    let rows = statement
+        .query_map([&deployment_id], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("读取域名失败: {error}"))?;
+    for row in rows {
+        domains.push(row.map_err(|error| format!("读取域名失败: {error}"))?);
+    }
+    if domains.is_empty() && !domain.trim().is_empty() {
+        domains.push(domain);
+    }
+    if domains.is_empty() {
+        domains.push("example.com".to_string());
+    }
+
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("获取数据目录失败: {error}"))?
+        .join("generated")
+        .join(&deployment_id);
+    let env_path = directory.join(".env");
+    let nginx_path = directory.join("nginx.conf");
+    let compose_path = directory.join("docker-compose.yaml");
+    let exists = env_path.exists() || nginx_path.exists() || compose_path.exists();
+
+    let env_changed = fs::read_to_string(&env_path)
+        .map(|value| value != render_env(&project, &remote_path, nginx_port))
+        .unwrap_or(true);
+    let nginx_changed = fs::read_to_string(&nginx_path)
+        .map(|value| value != render_nginx(&domains, nginx_port, ssl != 0))
+        .unwrap_or(true);
+    let compose_changed = fs::read_to_string(&compose_path)
+        .map(|value| value != COMPOSE_TEMPLATE)
+        .unwrap_or(true);
+
+    Ok(GeneratedStatus {
+        directory: directory.to_string_lossy().to_string(),
+        exists,
+        env_changed,
+        nginx_changed,
+        compose_changed,
+    })
+}
+
 #[tauri::command]
 pub fn render_compose_preview() -> String {
     COMPOSE_TEMPLATE.to_string()

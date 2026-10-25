@@ -169,5 +169,6 @@
 - [x] `.env` / Nginx 渲染预览
 - [x] 本地 generated 目录写入（.env / nginx / compose）
 - [x] 部署计划真实步骤预览
+- [x] 本地 generated 状态检测
 - [ ] 远程配置写入
 - [ ] PHP 回退验收
