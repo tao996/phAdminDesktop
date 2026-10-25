@@ -221,10 +221,11 @@ Phase 1 已完成：
 - Overview 容器统计使用 `get_containers`，最近活动使用 `list_runs`；
 - 终端支持白名单命令（argv 解析，不经过 shell）；
 - Deploy 面板「开始升级」执行真实 `php admin app:<name> upgrade`；
-- 备份仍为 mock；重启/多步骤编排待接入。
+- 勾选重启时，升级成功后自动串行执行 `dc:restart:php`；失败跳过；
+- 备份仍为 mock；同步/配置/Nginx 编排待接入。
 
 下一步：
 
-- 多步骤部署编排 / 失败中止 / 重启串行化。
+- 完整部署步骤编排 / 失败中止。
 
 详见 [roadmap.md](roadmap.md)。

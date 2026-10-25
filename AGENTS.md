@@ -87,11 +87,12 @@ Phase 1（SQLite + 只读/导入）已完成：
 - `list_runs` / `cancel_run`：终端「任务」面板查看历史并取消；
 - `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
 - Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock；
-- Deploy「开始升级」执行真实 `php admin app:<name> upgrade`；多步骤编排未接入。
+- Deploy「开始升级」执行真实 `php admin app:<name> upgrade`；成功后串行重启 PHP，失败跳过；
+- 同步 / 配置 / Nginx 多步骤编排未接入。
 
 下一步：
 
-- 多步骤部署编排 / 失败中止 / 重启串行化。
+- 完整部署步骤编排 / 失败中止。
 
 不要提前实现部署/SSH/Docker 写操作。先把数据层和只读链路打通。
 

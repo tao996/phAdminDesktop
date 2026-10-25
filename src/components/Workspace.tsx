@@ -23,7 +23,7 @@ interface WorkspaceProps {
   onNotify: (message: string) => void;
   onTestConnection: () => void;
   onOpenRuns: () => void;
-  onExecuteCommand: (command: string) => void;
+  onExecuteCommand: (command: string, options?: { restart?: boolean }) => void;
   refreshVersion: number;
 }
 

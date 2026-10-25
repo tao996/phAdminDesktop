@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
@@ -90,6 +90,9 @@ function App() {
   const [showRuns, setShowRuns] = useState(false);
   const [runsVersion, setRunsVersion] = useState(0);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
+  const pendingRestarts = useRef<
+    Map<string, { projectId: string; command: string }>
+  >(new Map());
 
   const server = servers.find((item) => item.id === serverId) ?? servers[0];
   const serverProjects = useMemo(
@@ -203,6 +206,34 @@ function App() {
     }));
   };
 
+  const executeCommandLine = async (
+    command: string,
+    projectId: string,
+  ): Promise<string | null> => {
+    const trimmed = command.trim();
+    if (!trimmed) return null;
+
+    let tokens: string[];
+    try {
+      tokens = parseCommandLine(trimmed);
+    } catch (error) {
+      appendLine(projectId, "command", `$ ${trimmed}`);
+      appendLine(projectId, "error", error instanceof Error ? error.message : String(error));
+      return null;
+    }
+    if (tokens.length === 0) return null;
+
+    appendLine(projectId, "command", `$ ${trimmed}`);
+    setToast({ id: Date.now(), message: `执行 ${tokens[0]} …` });
+    try {
+      return await runCommand(projectId, tokens[0], tokens.slice(1));
+    } catch (error) {
+      appendLine(projectId, "error", `启动失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "命令启动失败" });
+      return null;
+    }
+  };
+
   useEffect(() => {
     if (!canUseTauri()) return;
     let disposed = false;
@@ -230,6 +261,17 @@ function App() {
             "error",
             `✘ 任务失败（exit ${payload.exitCode ?? "unknown"}）`,
           );
+        }
+
+        const pending = pendingRestarts.current.get(payload.runId);
+        if (pending) {
+          pendingRestarts.current.delete(payload.runId);
+          if (payload.status === "succeeded") {
+            appendLine(pending.projectId, "info", "→ 升级完成，开始重启 PHP");
+            void executeCommandLine(pending.command, pending.projectId);
+          } else {
+            appendLine(pending.projectId, "info", "→ 升级未成功，已跳过重启");
+          }
         }
       }),
     ]).then((listeners) => {
@@ -290,36 +332,37 @@ function App() {
     const projectId = activeProject.id;
     const trimmed = command.trim();
     if (!trimmed) return;
-    appendLine(projectId, "command", `$ ${trimmed}`);
 
     if (!canUseTauri()) {
+      appendLine(projectId, "command", `$ ${trimmed}`);
       appendLine(projectId, "info", "→ 浏览器预览模式，不执行真实命令");
       setToast({ id: Date.now(), message: "浏览器预览：命令未执行" });
       return;
     }
 
-    let tokens: string[];
-    try {
-      tokens = parseCommandLine(trimmed);
-    } catch (error) {
-      appendLine(projectId, "error", error instanceof Error ? error.message : String(error));
-      return;
-    }
-    if (tokens.length === 0) return;
-
-    setToast({ id: Date.now(), message: `执行 ${tokens[0]} …` });
-    void runCommand(projectId, tokens[0], tokens.slice(1)).catch((error: unknown) => {
-      appendLine(projectId, "error", `启动失败：${String(error)}`);
-      setToast({ id: Date.now(), message: "命令启动失败" });
-    });
+    void executeCommandLine(trimmed, projectId);
   };
 
-  const handleExecuteCommand = (command: string) => {
+  const handleExecuteCommand = (
+    command: string,
+    options?: { restart?: boolean },
+  ) => {
+    if (!activeProject) return;
     if (!canUseTauri()) {
       runAction(command, "部署 / 升级");
       return;
     }
-    handleCommand(command);
+
+    const projectId = activeProject.id;
+    const projectName = activeProject.name;
+    void executeCommandLine(command, projectId).then((runId) => {
+      if (!runId || !options?.restart) return;
+      pendingRestarts.current.set(runId, {
+        projectId,
+        command: `php admin app:${projectName} dc:restart:php`,
+      });
+      setToast({ id: Date.now(), message: "升级已启动，成功后自动重启 PHP" });
+    });
   };
 
   const handleTestConnection = () => {

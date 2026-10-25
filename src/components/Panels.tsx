@@ -305,7 +305,7 @@ export function OverviewPanel({
 }
 
 interface DeployPanelProps extends PanelCommonProps {
-  onExecuteCommand: (command: string) => void;
+  onExecuteCommand: (command: string, options?: { restart?: boolean }) => void;
   onNotify: (message: string) => void;
 }
 
@@ -452,9 +452,9 @@ export function DeployPanel({
               type="button"
               className="button primary"
               onClick={() => {
-                onExecuteCommand(command);
+                onExecuteCommand(command, { restart });
                 if (restart) {
-                  onNotify("升级命令已启动；重启步骤将在部署编排中串行执行");
+                  onNotify("升级完成后将自动重启 PHP");
                 }
               }}
             >
@@ -484,7 +484,7 @@ export function DeployPanel({
           <div className="command-hint">
             <Icon name="alert" size={13} />
             {canUseTauri()
-              ? "Tauri 模式会通过本地 / SSH 真实执行 php admin 升级命令；重启步骤将由后续部署编排串行执行。"
+              ? "Tauri 模式会通过本地 / SSH 真实执行 php admin 升级命令；勾选重启时，成功后会串行执行 dc:restart:php。"
               : "当前为 UI 预览，按钮只模拟执行并把命令写入终端，不会连接服务器。"}
           </div>
           <div className="step-list">

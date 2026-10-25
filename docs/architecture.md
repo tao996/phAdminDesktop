@@ -312,7 +312,8 @@ SQLite
 - 已实现 `list_runs` 任务历史与 `cancel_run`；终端「任务」面板可查看/取消；
 - 已实现 `get_containers`：执行 `docker compose ps --format json` 并解析为容器列表；Containers 面板打开时自动刷新；
 - Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；备份仍为 mock；
-- Deploy 面板「开始升级」已接入 `run_command` 执行 `php admin app:<name> upgrade`；重启/多步骤编排尚未串行化；
-- 下一步：部署步骤编排与失败中止。
+- Deploy 面板「开始升级」已接入 `run_command` 执行 `php admin app:<name> upgrade`；勾选重启时，升级成功后自动串行执行 `dc:restart:php`，失败则跳过；
+- 同步过滤 / 配置生成 / Nginx 更新等多步骤编排尚未接入；
+- 下一步：完整部署步骤编排与失败中止。
 
 参见 [roadmap.md](roadmap.md)。
