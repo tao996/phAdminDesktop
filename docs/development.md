@@ -217,6 +217,7 @@ Phase 1 已完成：
 - `domains/env_vars/sync_items/deployment_settings/runs` 表；
 - `run_command` 基础执行：本地 filesystem / 系统 `ssh`，stdout/stderr 事件 + `runs` 落库；
 - `list_runs` 任务历史 + `cancel_run`；终端「任务」面板；
+- 运行输出写入 `logs/<run_id>.log`，任务面板可查看；
 - `get_containers` 解析 `docker compose ps --format json`，Containers 面板自动刷新；
 - Overview 容器统计使用 `get_containers`，最近活动使用 `list_runs`；
 - 终端支持白名单命令（argv 解析，不经过 shell）；

@@ -1,4 +1,6 @@
-use std::io::{BufRead, BufReader, Read};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -71,6 +73,21 @@ fn next_run_id() -> String {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn create_run_log(app: &AppHandle, run_id: &str) -> Result<(String, Arc<Mutex<File>>), String> {
+    let log_dir: PathBuf = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("获取数据目录失败: {error}"))?
+        .join("logs");
+    fs::create_dir_all(&log_dir).map_err(|error| format!("创建日志目录失败: {error}"))?;
+    let path = log_dir.join(format!("{run_id}.log"));
+    let file = File::create(&path).map_err(|error| format!("创建日志文件失败: {error}"))?;
+    Ok((
+        path.to_string_lossy().to_string(),
+        Arc::new(Mutex::new(file)),
+    ))
 }
 
 fn load_target(connection: &rusqlite::Connection, deployment_id: &str) -> Result<Target, String> {
@@ -296,10 +313,14 @@ fn stream_pipe<R: Read + Send + 'static>(
     deployment_id: String,
     stream: &'static str,
     reader: R,
+    log: Arc<Mutex<File>>,
 ) {
     std::thread::spawn(move || {
         let reader = BufReader::new(reader);
         for line in reader.lines().map_while(Result::ok) {
+            if let Ok(mut file) = log.lock() {
+                let _ = writeln!(file, "[{stream}] {line}");
+            }
             let _ = app.emit(
                 "run-output",
                 RunOutput {
@@ -328,24 +349,25 @@ pub fn run_command(
         ));
     }
 
-    let (target, run_id) = {
+    let (target, run_id, log) = {
         let connection = state
             .db
             .lock()
             .map_err(|error| format!("数据库连接被占用: {error}"))?;
         let target = load_target(&connection, &deployment_id)?;
         let run_id = next_run_id();
+        let (log_path, log) = create_run_log(&app, &run_id)?;
         let args_json =
             serde_json::to_string(&args).map_err(|error| format!("参数编码失败: {error}"))?;
         connection
             .execute(
                 "INSERT INTO runs
-                    (id, deployment_id, command, args_json, status, started_at)
-                 VALUES (?1, ?2, ?3, ?4, 'running', datetime('now'))",
-                params![&run_id, &deployment_id, &program, args_json],
+                    (id, deployment_id, command, args_json, status, started_at, log_path)
+                 VALUES (?1, ?2, ?3, ?4, 'running', datetime('now'), ?5)",
+                params![&run_id, &deployment_id, &program, args_json, log_path],
             )
             .map_err(|error| format!("创建运行记录失败: {error}"))?;
-        (target, run_id)
+        (target, run_id, log)
     };
 
     let mut command = match build_command(&target, &program, &args) {
@@ -392,6 +414,7 @@ pub fn run_command(
             deployment_id.clone(),
             "stdout",
             stdout,
+            log.clone(),
         );
     }
     if let Some(stderr) = stderr {
@@ -401,6 +424,7 @@ pub fn run_command(
             deployment_id.clone(),
             "stderr",
             stderr,
+            log.clone(),
         );
     }
 
@@ -411,6 +435,7 @@ pub fn run_command(
     let app_for_wait = app.clone();
     let run_id_for_wait = run_id.clone();
     let deployment_id_for_wait = deployment_id.clone();
+    let log_for_wait = log.clone();
     std::thread::spawn(move || {
         let exit_code = child
             .lock()
@@ -442,6 +467,14 @@ pub fn run_command(
                  SET status = ?1, exit_code = ?2, ended_at = datetime('now')
                  WHERE id = ?3",
                 params![status, exit_code, &run_id_for_wait],
+            );
+        }
+
+        if let Ok(mut file) = log_for_wait.lock() {
+            let _ = writeln!(
+                file,
+                "[finished] status={status} exit={}",
+                exit_code.map_or("unknown".to_string(), |code| code.to_string())
             );
         }
 

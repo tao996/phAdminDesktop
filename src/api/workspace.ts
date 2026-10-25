@@ -116,3 +116,7 @@ export async function getContainers(
 ): Promise<ContainerInfo[]> {
   return invoke<ContainerInfo[]>("get_containers", { deploymentId });
 }
+
+export async function getRunLog(runId: string): Promise<string> {
+  return invoke<string>("read_run_log", { runId });
+}

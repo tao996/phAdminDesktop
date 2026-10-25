@@ -151,6 +151,7 @@
 - [x] sync_items / runs 表（schema + 导入）
 - [x] 基础任务执行（本地/ssh + stdout/stderr + runs）
 - [x] 任务历史面板 / 取消按钮
+- [x] runs 日志文件 + 历史日志查看
 - [x] 容器状态解析（`docker compose ps --format json`）
 - [x] 概览容器统计 / 最近活动接入真实数据
 - [x] 终端白名单命令（argv 解析，无 shell 拼接）

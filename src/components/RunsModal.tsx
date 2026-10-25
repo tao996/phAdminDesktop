@@ -3,6 +3,7 @@ import type { Project } from "../data/mock";
 import {
   canUseTauri,
   cancelRun,
+  getRunLog,
   listRuns,
   type RunRecord,
 } from "../api/workspace";
@@ -39,6 +40,10 @@ export function RunsModal({
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [cancelId, setCancelId] = useState<string | null>(null);
+  const [logRun, setLogRun] = useState<RunRecord | null>(null);
+  const [logText, setLogText] = useState("");
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!canUseTauri()) {
@@ -77,6 +82,20 @@ export function RunsModal({
       onNotify(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setCancelId(null);
+    }
+  };
+
+  const openLog = async (run: RunRecord) => {
+    setLogRun(run);
+    setLogText("");
+    setLogError(null);
+    setLogLoading(true);
+    try {
+      setLogText(await getRunLog(run.id));
+    } catch (reason) {
+      setLogError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLogLoading(false);
     }
   };
 
@@ -143,6 +162,14 @@ export function RunsModal({
                   {run.errorSummary && <small className="run-error">{run.errorSummary}</small>}
                 </div>
                 <div className="run-actions">
+                  <button
+                    type="button"
+                    className="mini-button"
+                    onClick={() => void openLog(run)}
+                  >
+                    <Icon name="file-text" size={11} />
+                    日志
+                  </button>
                   {run.status === "running" && (
                     <button
                       type="button"
@@ -159,6 +186,27 @@ export function RunsModal({
               </div>
             ))}
         </div>
+
+        {logRun && (
+          <div className="run-log-panel">
+            <div className="run-log-head">
+              <span>
+                日志 · {logRun.command} {logRun.args.join(" ")}
+              </span>
+              <button
+                type="button"
+                className="icon-button subtle"
+                aria-label="关闭日志"
+                onClick={() => setLogRun(null)}
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            {logLoading && <div className="runs-empty">正在读取日志…</div>}
+            {!logLoading && logError && <div className="runs-empty error">{logError}</div>}
+            {!logLoading && !logError && <pre className="run-log">{logText || "（暂无输出）"}</pre>}
+          </div>
+        )}
 
         <div className="modal-footer">
           <span className="muted-caption">

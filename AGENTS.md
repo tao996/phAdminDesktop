@@ -85,6 +85,7 @@ Phase 1（SQLite + 只读/导入）已完成：
 - `run_command`：本地 filesystem / 系统 `ssh` 执行，stdout/stderr 事件 + `runs`；
 - 终端白名单命令：`docker/php/git/ssh/ls/pwd/whoami/composer`，前端 argv 解析，不经过 shell；
 - `list_runs` / `cancel_run`：终端「任务」面板查看历史并取消；
+- 运行输出持久化到 `logs/<run_id>.log`，`read_run_log` 供任务面板查看；
 - `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
 - Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock；
 - Deploy「开始升级」执行真实 `php admin app:<name> upgrade`；成功后串行重启 PHP，失败跳过；

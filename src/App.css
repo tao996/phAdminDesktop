@@ -2531,6 +2531,35 @@ select:focus-visible,
   color: #ffc1c7;
 }
 
+.run-log-panel {
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.run-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 18px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.run-log {
+  max-height: 28vh;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 18px 14px;
+  color: #9fb2cc;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ---------------- Toast ---------------- */
 
 .toast {

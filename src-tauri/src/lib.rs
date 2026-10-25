@@ -36,6 +36,7 @@ pub fn run() {
             commands::load_workspace,
             commands::import_legacy_config,
             commands::list_runs,
+            commands::read_run_log,
             runner::run_command,
             runner::cancel_run,
             runner::get_containers
