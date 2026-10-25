@@ -175,5 +175,6 @@
 - [x] 远程 generated 配置上传 + `.bak` 备份 + 差异检查 + 恢复 + 清理（vbox 实测）
 - [x] config.php 预览 / 生成 / 上传
 - [x] Deploy 面板“同步全部”（顺序执行并等待 git run；vbox 远程链路实测）
+- [x] 模板与 legacy 逐行对齐（env/compose/config.php）
 - [ ] 远程配置写入产品策略
 - [ ] PHP 回退验收

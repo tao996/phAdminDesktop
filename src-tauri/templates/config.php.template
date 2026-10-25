@@ -1,11 +1,12 @@
 <?php
 
 /**
- * 应用主配置 — 由 PhAdmin Desktop 生成
+ * 应用主配置 — 由 deploy 工具生成
  */
 $data = include __DIR__ . '/services.docker.example.php';
 
 // 合并项目配置覆盖（array_merge_deep 定义在 src/tao996/function.php）
+// 具体的配置来自项目下的 server.php 中的 app.config(手写）
 $data = array_merge_deep($data, {{CONFIG_OVERRIDES}});
 
 return $data;

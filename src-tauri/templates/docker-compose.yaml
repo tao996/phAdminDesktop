@@ -1,6 +1,6 @@
 version: '3.5'
 
-# 统一模板：nginx 绑定 127.0.0.1，由宿主机 nginx 反向代理
+# 统一模板：nginx 绑定 127.0.0.1，由宿主机 nginx 反向代理（Docker Router 模式下该映射冗余但无害）
 networks:
   backend:
     driver: bridge
@@ -23,6 +23,7 @@ services:
 
   php:
     image: ${PHP_IMAGE:-authus/phalcon:5.23.0}
+    # registry.cn-shenzhen.aliyuncs.com/authus/phalcon:5.23.0
     container_name: ${APP_NAME}-php
     working_dir: /var/www
     restart: on-failure
@@ -55,6 +56,7 @@ services:
     volumes:
       - ${DATA_PATH_HOST}/mysql:/var/lib/mysql
       - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
+#      - ./docker/mysql/sql:/docker-entrypoint-initdb.d
       - ./docker/log/mysql:/var/log/mysql/:rw
     restart: always
     networks:
