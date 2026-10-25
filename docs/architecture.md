@@ -299,7 +299,7 @@ SQLite
 - `.env` 的 MYSQL_PASSWORD / REDIS_PASSWORD 从 `env_vars` 读取，避免生成空密码导致容器启动失败；
 - Deploy 面板通过 `preview_deploy_plan` 展示真实部署步骤与命令；
 - Nginx 面板 reload / 访问日志已接真实 `docker compose exec nginx`，上传配置仍走 legacy；
-- 新增原生数据库备份：`docker compose exec -T mysql mysqldump`，保存到 `app_data/backups/<deployment>/<millis>.sql`；真实 MySQL 容器已验证；
+- 新增原生数据库备份：`docker compose exec -T mysql mysqldump`，保存到 `app_data/backups/<deployment>/<millis>.sql`；真实 MySQL 容器已验证；支持本地备份列表与恢复（SQL 通过 stdin 导入 mysql）；
 - 数据库迁移/seed/下载/备份列表仍通过 legacy CLI 过渡；
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；
 - 新增 `sync_bundle_item`：本地 filesystem / SSH 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，SSH 通过 scp 上传；执行结果写入 runs 与日志；

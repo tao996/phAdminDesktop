@@ -347,3 +347,22 @@ export async function backupDatabase(
 ): Promise<DatabaseBackupFile> {
   return invoke<DatabaseBackupFile>("backup_database", { deploymentId });
 }
+
+export interface BackupEntry {
+  name: string;
+  path: string;
+  bytes: number;
+}
+
+export async function listDatabaseBackups(
+  deploymentId: string,
+): Promise<BackupEntry[]> {
+  return invoke<BackupEntry[]>("list_database_backups", { deploymentId });
+}
+
+export async function restoreDatabaseBackup(
+  deploymentId: string,
+  name: string,
+): Promise<number> {
+  return invoke<number>("restore_database_backup", { deploymentId, name });
+}

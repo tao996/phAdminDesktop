@@ -58,6 +58,8 @@ pub fn run() {
             config_apply::prepare_runtime_assets,
             config_apply::prune_config_backups,
             database::backup_database,
+            database::list_database_backups,
+            database::restore_database_backup,
             commands::import_legacy_config,
             commands::list_runs,
             commands::list_deploy_runs,

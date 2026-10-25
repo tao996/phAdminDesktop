@@ -2467,6 +2467,33 @@ select:focus-visible,
   color: var(--muted);
 }
 
+.native-backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 16px 14px;
+}
+
+.native-backup-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.native-backup-row code {
+  flex: 1;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.native-backup-row small {
+  color: var(--faint);
+  font-size: 8px;
+}
+
 .runs-empty {
   padding: 26px 8px;
   color: var(--faint);

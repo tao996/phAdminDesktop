@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Activity, Backup, Project, Server } from "../data/mock";
+import type { BackupEntry } from "../api/workspace";
 import {
   ContainersPanel,
   DatabasePanel,
@@ -32,6 +33,8 @@ interface WorkspaceProps {
   onReloadNginx: () => void;
   onDbCommand: (args: string[], label: string) => void;
   onNativeDbBackup: () => void;
+  onListNativeBackups: () => Promise<BackupEntry[]>;
+  onRestoreNativeBackup: (name: string) => Promise<void>;
   onSyncAll: () => Promise<void>;
   onPreviewConfig: () => void;
   refreshVersion: number;
@@ -66,6 +69,8 @@ export function Workspace({
   onReloadNginx,
   onDbCommand,
   onNativeDbBackup,
+  onListNativeBackups,
+  onRestoreNativeBackup,
   onSyncAll,
   onPreviewConfig,
   refreshVersion,
@@ -273,6 +278,8 @@ export function Workspace({
             onAction={onAction}
             onDbCommand={onDbCommand}
             onNativeBackup={onNativeDbBackup}
+            onListNativeBackups={onListNativeBackups}
+            onRestoreNativeBackup={onRestoreNativeBackup}
           />
         )}
         {section === "logs" && <LogsPanel project={project} />}

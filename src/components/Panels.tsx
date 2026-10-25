@@ -7,6 +7,7 @@ import {
   loadDeploymentConfig,
   previewDeployPlan,
   type DeployStep,
+  type BackupEntry,
   type RunRecord,
   type SyncItem,
 } from "../api/workspace";
@@ -1010,6 +1011,8 @@ interface DatabaseProps extends PanelCommonProps {
   backups: Backup[];
   onDbCommand: (args: string[], label: string) => void;
   onNativeBackup: () => void;
+  onListNativeBackups: () => Promise<BackupEntry[]>;
+  onRestoreNativeBackup: (name: string) => Promise<void>;
 }
 
 export function DatabasePanel({
@@ -1018,8 +1021,11 @@ export function DatabasePanel({
   onAction,
   onDbCommand,
   onNativeBackup,
+  onListNativeBackups,
+  onRestoreNativeBackup,
 }: DatabaseProps) {
   const [pmaDeployed, setPmaDeployed] = useState(false);
+  const [nativeBackups, setNativeBackups] = useState<BackupEntry[]>([]);
 
   return (
     <div className="panel-stack">
@@ -1029,6 +1035,13 @@ export function DatabasePanel({
           <h3>备份与迁移</h3>
         </div>
         <div className="heading-actions">
+          <button
+            type="button"
+            className="button secondary small"
+            onClick={() => void onListNativeBackups().then(setNativeBackups)}
+          >
+            本地备份
+          </button>
           <button
             type="button"
             className="button secondary small"
@@ -1060,6 +1073,33 @@ export function DatabasePanel({
           </button>
         </div>
       </div>
+
+      {nativeBackups.length > 0 && (
+        <section className="card">
+          <div className="card-heading">
+            <div>
+              <span className="section-kicker">Local MySQL</span>
+              <h3>原生备份</h3>
+            </div>
+            <span className="muted-caption">{nativeBackups.length} 个文件</span>
+          </div>
+          <div className="native-backup-list">
+            {nativeBackups.slice(0, 5).map((backup) => (
+              <div className="native-backup-row" key={backup.name}>
+                <code>{backup.name}</code>
+                <small>{backup.bytes} bytes</small>
+                <button
+                  type="button"
+                  className="mini-button"
+                  onClick={() => void onRestoreNativeBackup(backup.name)}
+                >
+                  恢复
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="two-column wide-left">
         <section className="card">

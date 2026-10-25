@@ -236,6 +236,34 @@ pub(crate) fn capture_target_stdout(
     ))
 }
 
+pub(crate) fn run_target_with_stdin(
+    target: &Target,
+    program: &str,
+    args: &[String],
+    input: &[u8],
+) -> Result<(bool, String), String> {
+    let mut command = build_command(target, program, args)?;
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("执行 {program} 失败: {error}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        stdin
+            .write_all(input)
+            .map_err(|error| format!("写入 {program} stdin 失败: {error}"))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("等待 {program} 失败: {error}"))?;
+    Ok((
+        output.status.success(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    ))
+}
+
 pub(crate) fn upload_to_target(
     target: &Target,
     local_path: &Path,

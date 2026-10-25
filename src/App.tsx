@@ -40,6 +40,8 @@ import {
   writeGeneratedConfig,
   prepareRuntimeAssets,
   backupDatabase,
+  listDatabaseBackups,
+  restoreDatabaseBackup,
   listConfigBackups,
   restoreConfigBackup,
   syncBundleItem,
@@ -658,6 +660,30 @@ function App() {
     }
   };
 
+  const handleListNativeBackups = async () => {
+    if (!activeProject) return [];
+    if (!canUseTauri()) return [];
+    try {
+      return await listDatabaseBackups(activeProject.id);
+    } catch (error) {
+      appendLine(activeProject.id, "error", `读取备份列表失败：${String(error)}`);
+      return [];
+    }
+  };
+
+  const handleRestoreNativeBackup = async (name: string): Promise<void> => {
+    if (!activeProject) return;
+    if (!window.confirm(`用 ${name} 覆盖当前数据库？`)) return;
+    try {
+      const bytes = await restoreDatabaseBackup(activeProject.id, name);
+      appendLine(activeProject.id, "success", `数据库已从 ${name} 恢复（${bytes} bytes）`);
+      setToast({ id: Date.now(), message: "数据库恢复完成" });
+    } catch (error) {
+      appendLine(activeProject.id, "error", `数据库恢复失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "数据库恢复失败" });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -782,6 +808,8 @@ function App() {
             onReloadNginx={handleNginxReload}
             onDbCommand={handleDbCommand}
             onNativeDbBackup={handleNativeDbBackup}
+            onListNativeBackups={handleListNativeBackups}
+            onRestoreNativeBackup={handleRestoreNativeBackup}
             onPreviewConfig={() => setShowConfig(true)}
             refreshVersion={runsVersion}
           />
