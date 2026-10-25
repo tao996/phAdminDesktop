@@ -253,6 +253,9 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                           : "已同步"}
                     </span>
                   )}
+                  <button type="button" className="mini-button" onClick={refreshStatus}>
+                    刷新状态
+                  </button>
                 </div>
               )}
               {active === "rendered" ? (
