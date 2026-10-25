@@ -2498,6 +2498,17 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+.run-step {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 5px;
+  border: 1px solid rgba(91, 140, 255, 0.22);
+  border-radius: 4px;
+  background: rgba(91, 140, 255, 0.08);
+  color: #9bb8ff;
+  font-size: 8px;
+}
+
 .run-main small {
   display: block;
   margin-top: 3px;

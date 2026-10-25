@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod deploy;
 mod legacy;
 mod models;
 mod runner;
@@ -37,6 +38,7 @@ pub fn run() {
             commands::import_legacy_config,
             commands::list_runs,
             commands::read_run_log,
+            deploy::start_deploy,
             runner::run_command,
             runner::cancel_run,
             runner::get_containers

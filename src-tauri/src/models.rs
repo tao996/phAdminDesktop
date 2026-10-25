@@ -71,4 +71,7 @@ pub struct RunRecord {
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
     pub error_summary: Option<String>,
+    pub deploy_run_id: Option<String>,
+    pub step_key: Option<String>,
+    pub step_title: Option<String>,
 }

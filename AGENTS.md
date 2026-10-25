@@ -89,12 +89,13 @@ Phase 1（SQLite + 只读/导入）已完成：
 - `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
 - 容器启动/停止/重启/日志通过 `run_command` 执行；
 - Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock；
-- Deploy「开始升级」执行真实 `php admin app:<name> upgrade`；成功后串行重启 PHP，失败跳过；
-- 同步 / 配置 / Nginx 多步骤编排未接入。
+- Deploy「开始升级」调用 `start_deploy`：升级 → compose up → Nginx reload → 可选重启 PHP；失败中止，同 deployment 防并发；
+- 步骤 run 关联 `deploy_runs`，任务面板显示步骤；
+- 原生 sync_items / 配置渲染 / Nginx 生成未接入。
 
 下一步：
 
-- 完整部署步骤编排 / 失败中止。
+- 原生 sync_items / 配置渲染 / Nginx 生成。
 
 不要提前实现部署/SSH/Docker 写操作。先把数据层和只读链路打通。
 

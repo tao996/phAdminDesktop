@@ -155,6 +155,7 @@ export function RunsModal({
                   <code>
                     {run.command} {run.args.join(" ")}
                   </code>
+                  {run.stepTitle && <span className="run-step">{run.stepTitle}</span>}
                   <small>
                     {formatTime(run.startedAt)} → {formatTime(run.endedAt)}
                     {run.exitCode !== null ? ` · exit ${run.exitCode}` : ""}

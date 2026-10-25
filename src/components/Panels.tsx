@@ -56,7 +56,7 @@ function runToActivity(run: RunRecord, projectId: string): Activity {
     id: run.id,
     projectId,
     time: formatRunTime(run.startedAt),
-    action: [run.command, ...run.args].join(" "),
+    action: run.stepTitle ?? [run.command, ...run.args].join(" "),
     result,
     duration: formatRunDuration(run),
   };
@@ -305,16 +305,14 @@ export function OverviewPanel({
 }
 
 interface DeployPanelProps extends PanelCommonProps {
-  onExecuteCommand: (command: string, options?: { restart?: boolean }) => void;
-  onNotify: (message: string) => void;
+  onStartDeploy: (restartPhp: boolean) => void;
 }
 
 export function DeployPanel({
   project,
   server,
   onAction,
-  onExecuteCommand,
-  onNotify,
+  onStartDeploy,
 }: DeployPanelProps) {
   const [filter, setFilter] = useState<"all" | "method" | "name">("all");
   const [method, setMethod] = useState("git");
@@ -452,10 +450,7 @@ export function DeployPanel({
               type="button"
               className="button primary"
               onClick={() => {
-                onExecuteCommand(command, { restart });
-                if (restart) {
-                  onNotify("升级完成后将自动重启 PHP");
-                }
+                onStartDeploy(restart);
               }}
             >
               <Icon name="rocket" size={14} />
@@ -484,7 +479,7 @@ export function DeployPanel({
           <div className="command-hint">
             <Icon name="alert" size={13} />
             {canUseTauri()
-              ? "Tauri 模式会通过本地 / SSH 真实执行 php admin 升级命令；勾选重启时，成功后会串行执行 dc:restart:php。"
+              ? "Tauri 模式按步骤执行：升级 → 容器 → Nginx；勾选重启时最后重启 PHP，任一步失败即中止。"
               : "当前为 UI 预览，按钮只模拟执行并把命令写入终端，不会连接服务器。"}
           </div>
           <div className="step-list">

@@ -222,12 +222,12 @@ Phase 1 已完成：
 - 容器启动/停止/重启/日志已接入真实命令；
 - Overview 容器统计使用 `get_containers`，最近活动使用 `list_runs`；
 - 终端支持白名单命令（argv 解析，不经过 shell）；
-- Deploy 面板「开始升级」执行真实 `php admin app:<name> upgrade`；
-- 勾选重启时，升级成功后自动串行执行 `dc:restart:php`；失败跳过；
-- 备份仍为 mock；同步/配置/Nginx 编排待接入。
+- Deploy 面板「开始升级」调用 `start_deploy`，按步骤执行升级 → compose up → Nginx reload → 可选重启 PHP；
+- 任一步失败中止；同一 deployment 禁止并发部署；步骤 run 关联 `deploy_runs`；
+- 备份仍为 mock；原生同步/配置渲染待接入。
 
 下一步：
 
-- 完整部署步骤编排 / 失败中止。
+- 原生 sync_items / 配置渲染 / Nginx 生成。
 
 详见 [roadmap.md](roadmap.md)。

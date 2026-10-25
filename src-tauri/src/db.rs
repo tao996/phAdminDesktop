@@ -121,19 +121,42 @@ pub(crate) fn migrate(connection: &Connection) -> rusqlite::Result<()> {
             started_at    TEXT,
             ended_at      TEXT,
             log_path      TEXT,
+            error_summary TEXT,
+            deploy_run_id TEXT,
+            step_key      TEXT,
+            step_title    TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS deploy_runs (
+            id            TEXT PRIMARY KEY,
+            deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+            status        TEXT NOT NULL CHECK (status IN
+                          ('running', 'succeeded', 'failed', 'canceled')),
+            plan_json     TEXT NOT NULL DEFAULT '[]',
+            started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            ended_at      TEXT,
             error_summary TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_sync_items_deployment
             ON sync_items(deployment_id, sort);
         CREATE INDEX IF NOT EXISTS idx_runs_deployment_started
-            ON runs(deployment_id, started_at DESC);",
+            ON runs(deployment_id, started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_deploy_runs_deployment
+            ON deploy_runs(deployment_id, started_at DESC);",
     )?;
     ensure_column(
         connection,
         "servers",
         "key_path",
         "key_path TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(connection, "runs", "deploy_run_id", "deploy_run_id TEXT")?;
+    ensure_column(connection, "runs", "step_key", "step_key TEXT")?;
+    ensure_column(connection, "runs", "step_title", "step_title TEXT")?;
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_runs_deploy_run
+            ON runs(deploy_run_id, started_at);",
     )?;
     Ok(())
 }
@@ -305,7 +328,8 @@ pub fn list_runs(
 ) -> rusqlite::Result<Vec<RunRecord>> {
     let mut statement = connection.prepare(
         "SELECT id, deployment_id, command, args_json, status, exit_code,
-                started_at, ended_at, error_summary
+                started_at, ended_at, error_summary,
+                deploy_run_id, step_key, step_title
          FROM runs
          WHERE deployment_id = ?1
          ORDER BY started_at DESC, id DESC
@@ -324,6 +348,9 @@ pub fn list_runs(
             started_at: row.get(6)?,
             ended_at: row.get(7)?,
             error_summary: row.get(8)?,
+            deploy_run_id: row.get(9)?,
+            step_key: row.get(10)?,
+            step_title: row.get(11)?,
         })
     })?;
     rows.collect()

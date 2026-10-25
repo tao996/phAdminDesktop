@@ -158,5 +158,6 @@
 - [x] 终端白名单命令（argv 解析，无 shell 拼接）
 - [x] 升级命令执行（单命令）
 - [x] 升级成功后串行重启 PHP
-- [ ] 同步 / 配置 / Nginx 多步骤编排
+- [x] 多步骤部署编排（legacy upgrade + compose + nginx + restart）
+- [ ] 原生 sync_items / 配置渲染 / Nginx 生成
 - [ ] PHP 回退验收

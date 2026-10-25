@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
@@ -32,6 +32,9 @@ import {
   importLegacyConfig,
   loadWorkspace,
   runCommand,
+  startDeploy,
+  type DeployFinished,
+  type DeployStepEvent,
   type ImportSummary,
   type RunFinished,
   type RunOutput,
@@ -90,9 +93,6 @@ function App() {
   const [showRuns, setShowRuns] = useState(false);
   const [runsVersion, setRunsVersion] = useState(0);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
-  const pendingRestarts = useRef<
-    Map<string, { projectId: string; command: string }>
-  >(new Map());
 
   const server = servers.find((item) => item.id === serverId) ?? servers[0];
   const serverProjects = useMemo(
@@ -262,16 +262,29 @@ function App() {
             `✘ 任务失败（exit ${payload.exitCode ?? "unknown"}）`,
           );
         }
-
-        const pending = pendingRestarts.current.get(payload.runId);
-        if (pending) {
-          pendingRestarts.current.delete(payload.runId);
-          if (payload.status === "succeeded") {
-            appendLine(pending.projectId, "info", "→ 升级完成，开始重启 PHP");
-            void executeCommandLine(pending.command, pending.projectId);
-          } else {
-            appendLine(pending.projectId, "info", "→ 升级未成功，已跳过重启");
-          }
+      }),
+      listen<DeployStepEvent>("deploy-step", (event) => {
+        const payload = event.payload;
+        appendLine(
+          payload.deploymentId,
+          "command",
+          `▶ [${payload.index + 1}/${payload.total}] ${payload.stepTitle}`,
+        );
+      }),
+      listen<DeployFinished>("deploy-finished", (event) => {
+        const payload = event.payload;
+        if (payload.status === "succeeded") {
+          appendLine(payload.deploymentId, "success", "✔ 部署完成");
+          setToast({ id: Date.now(), message: "部署完成" });
+        } else {
+          appendLine(
+            payload.deploymentId,
+            "error",
+            `✘ 部署${payload.status === "canceled" ? "已取消" : "失败"}${
+              payload.error ? `：${payload.error}` : ""
+            }`,
+          );
+          setToast({ id: Date.now(), message: "部署未成功" });
         }
       }),
     ]).then((listeners) => {
@@ -343,26 +356,35 @@ function App() {
     void executeCommandLine(trimmed, projectId);
   };
 
-  const handleExecuteCommand = (
-    command: string,
-    options?: { restart?: boolean },
-  ) => {
+  const handleExecuteCommand = (command: string) => {
     if (!activeProject) return;
     if (!canUseTauri()) {
-      runAction(command, "部署 / 升级");
+      runAction(command, "命令");
+      return;
+    }
+    handleCommand(command);
+  };
+
+  const handleStartDeploy = async (restartPhp: boolean) => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction(`php admin app:${activeProject.name} upgrade`, "部署 / 升级");
       return;
     }
 
     const projectId = activeProject.id;
-    const projectName = activeProject.name;
-    void executeCommandLine(command, projectId).then((runId) => {
-      if (!runId || !options?.restart) return;
-      pendingRestarts.current.set(runId, {
+    try {
+      const result = await startDeploy(projectId, restartPhp);
+      appendLine(
         projectId,
-        command: `php admin app:${projectName} dc:restart:php`,
-      });
-      setToast({ id: Date.now(), message: "升级已启动，成功后自动重启 PHP" });
-    });
+        "info",
+        `部署 ${result.deployRunId} 已启动（${result.steps.length} 步）`,
+      );
+      setToast({ id: Date.now(), message: "部署已启动" });
+    } catch (error) {
+      appendLine(projectId, "error", `部署启动失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "部署启动失败" });
+    }
   };
 
   const handleTestConnection = () => {
@@ -480,6 +502,7 @@ function App() {
             onTestConnection={handleTestConnection}
             onOpenRuns={() => setShowRuns(true)}
             onExecuteCommand={handleExecuteCommand}
+            onStartDeploy={handleStartDeploy}
             refreshVersion={runsVersion}
           />
 

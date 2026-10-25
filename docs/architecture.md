@@ -314,8 +314,9 @@ SQLite
 - 已实现 `get_containers`：执行 `docker compose ps --format json` 并解析为容器列表；Containers 面板打开时自动刷新；
 - 容器全部启动/重启/停止、单服务日志/重启均通过 `run_command` 真实执行，完成后自动刷新；
 - Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；备份仍为 mock；
-- Deploy 面板「开始升级」已接入 `run_command` 执行 `php admin app:<name> upgrade`；勾选重启时，升级成功后自动串行执行 `dc:restart:php`，失败则跳过；
-- 同步过滤 / 配置生成 / Nginx 更新等多步骤编排尚未接入；
-- 下一步：完整部署步骤编排与失败中止。
+- Deploy 面板「开始升级」已接入 `start_deploy` 编排：升级 → compose up → Nginx reload → 可选重启 PHP；任一步失败中止；同一 deployment 禁止并发部署；
+- 步骤 run 通过 `deploy_run_id` / `step_key` / `step_title` 关联 `deploy_runs`，任务面板可查看步骤；
+- 同步过滤 / 配置生成 / Nginx 更新仍由 legacy `php admin upgrade` 完成，尚未拆成原生步骤；
+- 下一步：原生 sync_items / 配置渲染 / Nginx 生成。
 
 参见 [roadmap.md](roadmap.md)。

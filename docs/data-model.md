@@ -1,6 +1,6 @@
 # 数据模型
 
-> 状态：Phase 1 已实现 `servers/projects/deployments` + `domains/env_vars/sync_items/deployment_settings/runs` 表、seed、`load_workspace`、legacy 导入
+> 状态：Phase 1 已实现 `servers/projects/deployments` + `domains/env_vars/sync_items/deployment_settings/runs/deploy_runs` 表、seed、`load_workspace`、legacy 导入
 > 数据库：SQLite 3（WAL）
 > 关联：[architecture.md](architecture.md)
 

@@ -68,6 +68,38 @@ export interface RunRecord {
   startedAt: string | null;
   endedAt: string | null;
   errorSummary: string | null;
+  deployRunId: string | null;
+  stepKey: string | null;
+  stepTitle: string | null;
+}
+
+export interface DeployStep {
+  key: string;
+  title: string;
+  program: string;
+  args: string[];
+}
+
+export interface DeployStart {
+  deployRunId: string;
+  steps: DeployStep[];
+}
+
+export interface DeployStepEvent {
+  deployRunId: string;
+  deploymentId: string;
+  runId: string;
+  stepKey: string;
+  stepTitle: string;
+  index: number;
+  total: number;
+}
+
+export interface DeployFinished {
+  deployRunId: string;
+  deploymentId: string;
+  status: "running" | "succeeded" | "failed" | "canceled";
+  error: string | null;
 }
 
 export interface ContainerInfo {
@@ -119,4 +151,11 @@ export async function getContainers(
 
 export async function getRunLog(runId: string): Promise<string> {
   return invoke<string>("read_run_log", { runId });
+}
+
+export async function startDeploy(
+  deploymentId: string,
+  restartPhp: boolean,
+): Promise<DeployStart> {
+  return invoke<DeployStart>("start_deploy", { deploymentId, restartPhp });
 }

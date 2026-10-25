@@ -23,7 +23,8 @@ interface WorkspaceProps {
   onNotify: (message: string) => void;
   onTestConnection: () => void;
   onOpenRuns: () => void;
-  onExecuteCommand: (command: string, options?: { restart?: boolean }) => void;
+  onExecuteCommand: (command: string) => void;
+  onStartDeploy: (restartPhp: boolean) => void;
   refreshVersion: number;
 }
 
@@ -48,6 +49,7 @@ export function Workspace({
   onTestConnection,
   onOpenRuns,
   onExecuteCommand,
+  onStartDeploy,
   refreshVersion,
 }: WorkspaceProps) {
   const [moreOpen, setMoreOpen] = useState(
@@ -219,8 +221,7 @@ export function Workspace({
             project={project}
             server={server}
             onAction={onAction}
-            onExecuteCommand={onExecuteCommand}
-            onNotify={onNotify}
+            onStartDeploy={onStartDeploy}
           />
         )}
         {section === "containers" && (
