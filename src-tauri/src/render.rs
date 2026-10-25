@@ -12,20 +12,44 @@ const ENV_TEMPLATE: &str = include_str!("../templates/env.example");
 const COMPOSE_TEMPLATE: &str = include_str!("../templates/docker-compose.yaml");
 const CONFIG_TEMPLATE: &str = include_str!("../templates/config.php.template");
 
+#[cfg(test)]
 pub(crate) fn render_env(project: &str, remote_path: &str, nginx_port: i64) -> String {
+    render_env_with_secrets(project, remote_path, nginx_port, "", "")
+}
+
+fn render_env_with_secrets(
+    project: &str,
+    remote_path: &str,
+    nginx_port: i64,
+    mysql_password: &str,
+    redis_password: &str,
+) -> String {
     ENV_TEMPLATE
         .replace("{{TZ}}", "Asia/Shanghai")
         .replace("{{APP_NAME}}", project)
         .replace("{{DATA_PATH_HOST}}", remote_path)
         .replace("{{NGINX_PORT}}", &nginx_port.to_string())
-        .replace("{{MYSQL_PASSWORD}}", "")
+        .replace("{{MYSQL_PASSWORD}}", mysql_password)
         .replace("{{MYSQL_USER}}", project)
         .replace("{{MYSQL_DATABASE}}", project)
-        .replace("{{REDIS_PASSWORD}}", "")
+        .replace("{{REDIS_PASSWORD}}", redis_password)
         .replace("{{NGINX_IMAGE}}", "nginx:stable-alpine")
         .replace("{{PHP_IMAGE}}", "authus/phalcon:5.23.0")
         .replace("{{MYSQL_IMAGE}}", "mysql:8.1.0")
         .replace("{{REDIS_IMAGE}}", "redis:7.2-alpine")
+}
+
+fn env_secret(connection: &rusqlite::Connection, deployment_id: &str, key: &str) -> String {
+    connection
+        .query_row(
+            "SELECT value FROM env_vars WHERE deployment_id = ?1 AND key = ?2",
+            rusqlite::params![deployment_id, key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 pub(crate) fn render_nginx(domains: &[String], nginx_port: i64, ssl: bool) -> String {
@@ -116,7 +140,15 @@ pub fn render_config_preview(
             },
         )
         .map_err(|error| format!("部署不存在: {error}"))?;
-    Ok(render_env(&project, &remote_path, nginx_port))
+    let mysql_password = env_secret(&connection, &deployment_id, "MYSQL_PASSWORD");
+    let redis_password = env_secret(&connection, &deployment_id, "REDIS_PASSWORD");
+    Ok(render_env_with_secrets(
+        &project,
+        &remote_path,
+        nginx_port,
+        &mysql_password,
+        &redis_password,
+    ))
 }
 
 #[tauri::command]
@@ -300,9 +332,20 @@ pub fn generated_config_status(
     let exists =
         env_path.exists() || nginx_path.exists() || compose_path.exists() || config_path.exists();
     let config_json = load_config_json(&connection, &deployment_id)?;
+    let mysql_password = env_secret(&connection, &deployment_id, "MYSQL_PASSWORD");
+    let redis_password = env_secret(&connection, &deployment_id, "REDIS_PASSWORD");
 
     let env_changed = fs::read_to_string(&env_path)
-        .map(|value| value != render_env(&project, &remote_path, nginx_port))
+        .map(|value| {
+            value
+                != render_env_with_secrets(
+                    &project,
+                    &remote_path,
+                    nginx_port,
+                    &mysql_password,
+                    &redis_password,
+                )
+        })
         .unwrap_or(true);
     let nginx_changed = fs::read_to_string(&nginx_path)
         .map(|value| value != render_nginx(&domains, nginx_port, ssl != 0))
@@ -422,8 +465,19 @@ pub fn write_generated_config(
     let compose_path = directory.join("docker-compose.yaml");
     let config_path = directory.join("config.php");
     let config_json = load_config_json(&connection, &deployment_id)?;
-    fs::write(&env_path, render_env(&project, &remote_path, nginx_port))
-        .map_err(|error| format!("写入 .env 失败: {error}"))?;
+    let mysql_password = env_secret(&connection, &deployment_id, "MYSQL_PASSWORD");
+    let redis_password = env_secret(&connection, &deployment_id, "REDIS_PASSWORD");
+    fs::write(
+        &env_path,
+        render_env_with_secrets(
+            &project,
+            &remote_path,
+            nginx_port,
+            &mysql_password,
+            &redis_password,
+        ),
+    )
+    .map_err(|error| format!("写入 .env 失败: {error}"))?;
     fs::write(&nginx_path, render_nginx(&domains, nginx_port, ssl != 0))
         .map_err(|error| format!("写入 nginx.conf 失败: {error}"))?;
     fs::write(&compose_path, COMPOSE_TEMPLATE)
@@ -452,6 +506,14 @@ mod tests {
         assert!(env.contains("DATA_PATH_HOST=/data/demo"));
         assert!(env.contains("PHP_IMAGE=authus/phalcon:5.23.0"));
         assert!(!env.contains("{{"));
+    }
+
+    #[test]
+    fn renders_env_secrets_from_env_vars() {
+        let env =
+            render_env_with_secrets("demo", "/data/demo", 8071, "mysql-secret", "redis-secret");
+        assert!(env.contains("MYSQL_PASSWORD=mysql-secret"));
+        assert!(env.contains("REDIS_PASSWORD=redis-secret"));
     }
 
     #[test]

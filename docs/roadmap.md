@@ -178,5 +178,5 @@
 - [x] 模板与 legacy 逐行对齐（env/compose/config.php）
 - [ ] 远程配置写入产品策略
 - [x] 原生部署模式（实验）：同步全部 + 配置上传 + compose/nginx/restart
-- [ ] 原生部署 vbox 全链路回归
+- [x] 原生部署 vbox 全链路回归
 - [ ] PHP 回退验收

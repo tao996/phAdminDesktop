@@ -159,10 +159,7 @@ fn build_command(target: &Target, program: &str, args: &[String]) -> Result<Comm
         .arg("-p")
         .arg(target.port.to_string())
         .arg(format!("{user}@{}", target.host.trim()))
-        .arg("--")
-        .arg("sh")
-        .arg("-lc")
-        .arg(remote);
+        .arg(&remote);
     Ok(command)
 }
 
@@ -704,6 +701,11 @@ mod tests {
         assert!(args.contains(&"C:/keys/id_ed25519".to_string()));
         assert!(args.contains(&"deploy@example.com".to_string()));
         assert!(args.contains(&"2222".to_string()));
+        assert!(
+            args.last()
+                .is_some_and(|arg| arg.contains("cd '/data/demo'"))
+        );
+        assert!(!args.contains(&"-lc".to_string()));
     }
 
     #[test]
