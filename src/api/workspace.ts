@@ -249,6 +249,7 @@ export interface GeneratedFiles {
   envPath: string;
   nginxPath: string;
   composePath: string;
+  configPath: string;
 }
 
 export interface GeneratedStatus {
@@ -257,6 +258,7 @@ export interface GeneratedStatus {
   envChanged: boolean;
   nginxChanged: boolean;
   composeChanged: boolean;
+  configChanged: boolean;
 }
 
 export async function generatedConfigStatus(

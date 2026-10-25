@@ -1,6 +1,7 @@
 use std::fs;
 use std::process::Command;
 
+use rusqlite::OptionalExtension;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
@@ -185,6 +186,21 @@ fn render_config_php(config_json: &str) -> String {
     CONFIG_TEMPLATE.replace("{{CONFIG_OVERRIDES}}", &php_literal(&value))
 }
 
+fn load_config_json(
+    connection: &rusqlite::Connection,
+    deployment_id: &str,
+) -> Result<String, String> {
+    connection
+        .query_row(
+            "SELECT COALESCE(config_json, '{}') FROM deployment_settings WHERE deployment_id = ?1",
+            [deployment_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("读取配置失败: {error}"))
+        .map(|value| value.unwrap_or_else(|| "{}".to_string()))
+}
+
 #[tauri::command]
 pub fn render_config_php_preview(
     state: State<'_, AppState>,
@@ -211,6 +227,7 @@ pub struct GeneratedFiles {
     pub env_path: String,
     pub nginx_path: String,
     pub compose_path: String,
+    pub config_path: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -221,6 +238,7 @@ pub struct GeneratedStatus {
     pub env_changed: bool,
     pub nginx_changed: bool,
     pub compose_changed: bool,
+    pub config_changed: bool,
 }
 
 #[tauri::command]
@@ -278,7 +296,10 @@ pub fn generated_config_status(
     let env_path = directory.join(".env");
     let nginx_path = directory.join("nginx.conf");
     let compose_path = directory.join("docker-compose.yaml");
-    let exists = env_path.exists() || nginx_path.exists() || compose_path.exists();
+    let config_path = directory.join("config.php");
+    let exists =
+        env_path.exists() || nginx_path.exists() || compose_path.exists() || config_path.exists();
+    let config_json = load_config_json(&connection, &deployment_id)?;
 
     let env_changed = fs::read_to_string(&env_path)
         .map(|value| value != render_env(&project, &remote_path, nginx_port))
@@ -289,6 +310,9 @@ pub fn generated_config_status(
     let compose_changed = fs::read_to_string(&compose_path)
         .map(|value| value != COMPOSE_TEMPLATE)
         .unwrap_or(true);
+    let config_changed = fs::read_to_string(&config_path)
+        .map(|value| value != render_config_php(&config_json))
+        .unwrap_or(true);
 
     Ok(GeneratedStatus {
         directory: directory.to_string_lossy().to_string(),
@@ -296,6 +320,7 @@ pub fn generated_config_status(
         env_changed,
         nginx_changed,
         compose_changed,
+        config_changed,
     })
 }
 
@@ -395,18 +420,23 @@ pub fn write_generated_config(
     let env_path = directory.join(".env");
     let nginx_path = directory.join("nginx.conf");
     let compose_path = directory.join("docker-compose.yaml");
+    let config_path = directory.join("config.php");
+    let config_json = load_config_json(&connection, &deployment_id)?;
     fs::write(&env_path, render_env(&project, &remote_path, nginx_port))
         .map_err(|error| format!("写入 .env 失败: {error}"))?;
     fs::write(&nginx_path, render_nginx(&domains, nginx_port, ssl != 0))
         .map_err(|error| format!("写入 nginx.conf 失败: {error}"))?;
     fs::write(&compose_path, COMPOSE_TEMPLATE)
         .map_err(|error| format!("写入 docker-compose.yaml 失败: {error}"))?;
+    fs::write(&config_path, render_config_php(&config_json))
+        .map_err(|error| format!("写入 config.php 失败: {error}"))?;
 
     Ok(GeneratedFiles {
         directory: directory.to_string_lossy().to_string(),
         env_path: env_path.to_string_lossy().to_string(),
         nginx_path: nginx_path.to_string_lossy().to_string(),
         compose_path: compose_path.to_string_lossy().to_string(),
+        config_path: config_path.to_string_lossy().to_string(),
     })
 }
 

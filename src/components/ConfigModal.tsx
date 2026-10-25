@@ -367,7 +367,8 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                         ? "未生成"
                         : generatedStatus.envChanged ||
                             generatedStatus.nginxChanged ||
-                            generatedStatus.composeChanged
+                            generatedStatus.composeChanged ||
+                            generatedStatus.configChanged
                           ? "有变更"
                           : "已同步"}
                     </span>

@@ -7,7 +7,7 @@ use crate::runner::{self, Target};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
-const FILES: &[&str] = &[".env", "nginx.conf", "docker-compose.yaml"];
+const FILES: &[&str] = &[".env", "nginx.conf", "docker-compose.yaml", "config.php"];
 
 fn backup_existing(target: &Target, destination: &str, millis: u128) -> Result<(), String> {
     if target.kind == "filesystem" {
