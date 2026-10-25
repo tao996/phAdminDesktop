@@ -201,6 +201,69 @@ pub(crate) fn ensure_target_dir(target: &Target, path: &str) -> Result<(), Strin
     Ok(())
 }
 
+pub(crate) fn capture_target_command(
+    target: &Target,
+    program: &str,
+    args: &[String],
+) -> Result<(bool, String), String> {
+    let mut command = build_command(target, program, args)?;
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("执行 {program} 失败: {error}"))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok((output.status.success(), text))
+}
+
+pub(crate) fn upload_to_target(
+    target: &Target,
+    local_path: &Path,
+    remote_path: &str,
+) -> Result<(), String> {
+    if target.kind == "filesystem" {
+        if let Some(parent) = Path::new(remote_path).parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("创建目标目录失败: {error}"))?;
+        }
+        return std::fs::copy(local_path, remote_path)
+            .map(|_| ())
+            .map_err(|error| format!("复制 bundle 失败: {error}"));
+    }
+
+    let user = if target.username.trim().is_empty() {
+        "root"
+    } else {
+        target.username.trim()
+    };
+    let mut command = Command::new("scp");
+    command
+        .arg("-o")
+        .arg("BatchMode=yes")
+        .arg("-o")
+        .arg("StrictHostKeyChecking=accept-new")
+        .arg("-P")
+        .arg(target.port.to_string());
+    if !target.key_path.trim().is_empty() {
+        command.arg("-i").arg(target.key_path.trim());
+    }
+    command
+        .arg(local_path)
+        .arg(format!("{user}@{}:{remote_path}", target.host.trim()));
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("上传 bundle 失败: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("上传 bundle 失败: {}", stderr.trim()));
+    }
+    Ok(())
+}
+
 fn string_field(value: &Value, key: &str) -> String {
     value
         .get(key)

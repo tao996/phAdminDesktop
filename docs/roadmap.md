@@ -162,6 +162,7 @@
 - [x] sync_items / deployment_settings 读取与部署面板展示
 - [x] 原生 git sync（本地 filesystem / SSH，clone / pull）
 - [x] 本地 bundle sync
+- [x] SSH bundle sync（scp + 远程 git）
 - [x] 同步项级并发锁
 - [ ] ftp / SFTP 同步
 - [ ] 配置模板渲染 / Nginx 生成

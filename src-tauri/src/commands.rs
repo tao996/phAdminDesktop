@@ -14,6 +14,10 @@ use crate::legacy;
 use crate::models::{DeploymentConfig, ImportSummary, RunRecord, Workspace};
 use crate::runner;
 
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 fn run_git(args: &[String]) -> Result<String, String> {
     let output = Command::new("git")
         .args(args)
@@ -295,9 +299,14 @@ pub fn sync_bundle_item(
         if method != "bundle" {
             return Err(format!("当前同步项不是 bundle，method={method}"));
         }
-        if kind != "filesystem" {
-            return Err("bundle 同步暂只支持本地 filesystem 服务器".to_string());
-        }
+
+        let target = {
+            let connection = state
+                .db
+                .lock()
+                .map_err(|error| format!("数据库连接被占用: {error}"))?;
+            runner::load_target(&connection, &deployment_id)?
+        };
 
         let source = if path.trim().is_empty() {
             PathBuf::from(local_path)
@@ -305,14 +314,16 @@ pub fn sync_bundle_item(
             PathBuf::from(local_path).join(path.trim())
         };
         let dest = if path.trim().is_empty() {
-            PathBuf::from(remote_path)
+            PathBuf::from(&remote_path)
         } else {
-            PathBuf::from(remote_path).join(path.trim())
+            PathBuf::from(&remote_path).join(path.trim())
         };
         if !source.join(".git").exists() {
             return Err(format!("本地源不是 git 仓库: {}", source.display()));
         }
-        if let Some(parent) = dest.parent() {
+        if kind == "filesystem"
+            && let Some(parent) = dest.parent()
+        {
             fs::create_dir_all(parent).map_err(|error| format!("创建目标父目录失败: {error}"))?;
         }
 
@@ -356,27 +367,73 @@ pub fn sync_bundle_item(
             branch.clone(),
         ])?;
 
-        if dest.join(".git").exists() {
-            run(vec![
-                "-C".to_string(),
-                dest.to_string_lossy().to_string(),
-                "fetch".to_string(),
-                bundle_text,
-                branch.clone(),
-            ])?;
-            run(vec![
-                "-C".to_string(),
-                dest.to_string_lossy().to_string(),
-                "merge".to_string(),
-                "--ff-only".to_string(),
-                "FETCH_HEAD".to_string(),
-            ])?;
+        if kind == "filesystem" {
+            if dest.join(".git").exists() {
+                run(vec![
+                    "-C".to_string(),
+                    dest.to_string_lossy().to_string(),
+                    "fetch".to_string(),
+                    bundle_text,
+                    branch.clone(),
+                ])?;
+                run(vec![
+                    "-C".to_string(),
+                    dest.to_string_lossy().to_string(),
+                    "merge".to_string(),
+                    "--ff-only".to_string(),
+                    "FETCH_HEAD".to_string(),
+                ])?;
+            } else {
+                run(vec![
+                    "clone".to_string(),
+                    bundle_text,
+                    dest.to_string_lossy().to_string(),
+                ])?;
+            }
         } else {
-            run(vec![
-                "clone".to_string(),
-                bundle_text,
-                dest.to_string_lossy().to_string(),
-            ])?;
+            let remote_bundle = format!(
+                "/tmp/phadmin-bundle-{}.bundle",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|duration| duration.as_millis())
+                    .unwrap_or(0)
+            );
+            runner::upload_to_target(&target, &bundle_path, &remote_bundle)?;
+            transcript.push_str(&format!(
+                "$ scp {} -> {}:{}\n",
+                bundle_path.display(),
+                target.host,
+                remote_bundle
+            ));
+
+            let dest_text = if path.trim().is_empty() {
+                target.remote_path.trim_end_matches('/').to_string()
+            } else {
+                format!(
+                    "{}/{}",
+                    target.remote_path.trim_end_matches('/'),
+                    path.trim().trim_start_matches('/')
+                )
+            };
+            let parent = Path::new(&dest_text)
+                .parent()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| "/tmp".to_string());
+            let script = format!(
+                "set -e\ntrap 'rm -f {bundle}' EXIT\nif [ -d {git_dir} ]; then\n  git -C {dest} fetch {bundle} {branch}\n  git -C {dest} merge --ff-only FETCH_HEAD\nelse\n  mkdir -p {parent}\n  git clone {bundle} {dest}\nfi\n",
+                bundle = shell_quote(&remote_bundle),
+                git_dir = shell_quote(&format!("{dest_text}/.git")),
+                dest = shell_quote(&dest_text),
+                branch = shell_quote(&branch),
+                parent = shell_quote(&parent),
+            );
+            transcript.push_str(&format!("$ ssh {} 'sh -lc ...'\n", target.host));
+            let (success, output) =
+                runner::capture_target_command(&target, "sh", &["-lc".to_string(), script])?;
+            transcript.push_str(&output);
+            if !success {
+                return Err(format!("远程 bundle 同步失败: {}", output.trim()));
+            }
         }
 
         let _ = fs::remove_file(&bundle_path);

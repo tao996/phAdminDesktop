@@ -93,7 +93,7 @@ Phase 1（SQLite + 只读/导入）已完成：
 - 步骤 run 关联 `deploy_runs`，任务面板显示步骤；
 - Deploy 面板读取真实 `sync_items` / `deployment_settings`；
 - 本地 filesystem / SSH git 同步项支持 clone / pull（`sync_git_item`）；同步项级锁；
-- 本地 bundle 同步项支持 git bundle（`sync_bundle_item`）；ftp/SFTP 未接入。
+- 本地 / SSH bundle 同步支持 git bundle（`sync_bundle_item`）；ftp/SFTP 未接入。
 
 下一步：
 
