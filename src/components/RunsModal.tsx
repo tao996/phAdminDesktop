@@ -150,7 +150,11 @@ export function RunsModal({
           <div className="deploy-history">
             <span className="muted-caption">最近部署</span>
             {deployRuns.slice(0, 3).map((deploy) => (
-              <div className="deploy-history-row" key={deploy.id}>
+              <div
+                className="deploy-history-row"
+                key={deploy.id}
+                title={deploy.planJson}
+              >
                 <span className={`run-status ${deploy.status}`}>
                   <span className="status-dot" />
                   {deploy.status}
