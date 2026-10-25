@@ -85,9 +85,21 @@ pub fn apply_generated_config(
             backup_existing(&target, &destination, millis)?;
         }
         runner::upload_to_target(&target, &source_dir.join(file), &destination)?;
+        let local = fs::read_to_string(source_dir.join(file))
+            .map_err(|error| format!("读取本地 {file} 失败: {error}"))?;
+        let remote = if target.kind == "filesystem" {
+            fs::read_to_string(&destination).ok()
+        } else {
+            let (success, output) =
+                runner::capture_target_command(&target, "cat", std::slice::from_ref(&destination))?;
+            success.then_some(output)
+        };
+        if remote.as_deref() != Some(local.as_str()) {
+            return Err(format!("{file} 上传后校验失败"));
+        }
         transcript.push_str(&format!(
-            "$ upload {} -> {}:{}\n",
-            file, target.host, destination
+            "$ upload {} -> {}:{}\n$ verified {}\n",
+            file, target.host, destination, file
         ));
     }
     Ok(transcript)

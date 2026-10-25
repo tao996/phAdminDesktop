@@ -324,7 +324,7 @@ SQLite
 - 新增 `sync_bundle_item`：本地 filesystem / SSH 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，SSH 通过 scp 上传；执行结果写入 runs 与日志；
 - 新增 config.php 预览与生成：将 deployment_settings.config_json 转 PHP 数组字面量并套用模板，纳入 generated 与远程上传；
 - 新增 `sync_ftp_item`：本地目录递归复制 / SSH `scp -r`，本地支持 excludes；
-- ftp/SFTP 基础同步已接入；`.env` / Nginx / docker-compose / config.php 可预览并写入本地 generated 目录，支持变更状态检测；生成文件可上传远程、写 `.bak-<millis>` 备份、检查差异、恢复并按可配置数量清理旧备份（vbox 已实测）；
+- ftp/SFTP 基础同步已接入；`.env` / Nginx / docker-compose / config.php 可预览并写入本地 generated 目录，支持变更状态检测；生成文件可上传远程、写 `.bak-<millis>` 备份、检查差异、恢复并按可配置数量清理旧备份；上传后逐文件回读校验（vbox 已实测）；
 - 下一步：远程配置写入产品策略 / 部署计划接入原生同步。
 
 参见 [roadmap.md](roadmap.md)。
