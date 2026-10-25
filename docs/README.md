@@ -2,6 +2,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [current-state.md](current-state.md) | **最新进度、已验证场景、缺口、下一步（先读）** |
 | [architecture.md](architecture.md) | 总体架构、模块划分、任务模型、PHP 回退边界 |
 | [data-model.md](data-model.md) | SQLite 表结构、目录布局、导入/导出、密钥策略 |
 | [development.md](development.md) | 环境、命令、目录、开发顺序、测试要求 |
@@ -11,7 +12,7 @@
 
 ## 界面截图
 
-当前 UI 的服务器/项目/部署来自 SQLite（首次启动 seed）；容器、任务、同步、配置生成与部署操作已接入真实命令；仅数据库备份仍为 mock。
+当前 UI 的服务器/项目/部署来自 SQLite（首次启动 seed）；容器、任务、同步、配置生成、部署、数据库备份/恢复已接入真实命令；数据库迁移/seed/下载等仍走 legacy 过渡。
 
 | 页面 | 截图 |
 |---|---|
@@ -31,7 +32,7 @@
 
 ## 阅读顺序
 
-1. 新加入项目：`architecture.md` → `data-model.md` → `development.md`
+1. 新加入项目：`current-state.md` → `architecture.md` → `data-model.md` → `development.md`
 2. 做 UI：`ui-preview.md` + `architecture.md`
 3. 做数据库：`data-model.md`
 4. 规划任务：`roadmap.md`

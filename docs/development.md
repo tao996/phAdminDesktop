@@ -1,5 +1,7 @@
 # 开发指南
 
+> 先读 [current-state.md](current-state.md) 了解当前实现与验证状态。
+
 > 状态：脚手架阶段
 > 关联：[architecture.md](architecture.md) · [data-model.md](data-model.md) · [roadmap.md](roadmap.md)
 

@@ -4,10 +4,10 @@
 
 PhAdmin Desktop 是 Phalcon Admin 的主机侧部署控制台，目标替代仓库根目录的 `php admin` CLI。
 
-- **状态**：Tauri 2 + React 桌面端已可用；SQLite 数据层、任务执行/历史/日志、容器操作、部署编排、git/bundle/ftp 同步、配置生成/上传/备份恢复均已接入。远程配置写入生产策略与部署计划原生 sync 接入仍待确认。
+- **状态**：原生部署、健康检查、失败配置回滚、数据库备份/恢复均已实现并在 vbox / 真实 MySQL 容器验证；剩余工作见 [docs/current-state.md](docs/current-state.md)。
 - **技术栈**：Tauri 2、Rust、React 19、TypeScript、Vite、SQLite。
 - **SSH 登录**：当前实现使用 `key_path` + OpenSSH；不支持密码直连。
-- **远程验收**：vbox 测试机已实测 git/bundle/ftp/配置上传/备份恢复/同步全部（具体地址/密钥不入库文档）。
+- **远程验收**：vbox 测试机已实测 git/bundle/ftp/配置上传/备份恢复/同步全部/真实 Phalcon 5.23 原生部署（HTTP 200）。
 - **主数据源**：SQLite（见 [docs/data-model.md](docs/data-model.md)）。
 - **legacy 引擎**：`php admin` 仅用于迁移、差分验收、过渡期回退，不是桌面端默认执行内核。
 - **旧部署配置**：`D:\demo\code\flutter\library\projects\phalcon-admin\deploy\projects\vbox*` 只是历史测试配置，不作为生产配置直接导入。
@@ -16,11 +16,12 @@ PhAdmin Desktop 是 Phalcon Admin 的主机侧部署控制台，目标替代仓�
 
 按顺序阅读：
 
-1. [docs/architecture.md](docs/architecture.md) — 架构、模块、任务模型
-2. [docs/data-model.md](docs/data-model.md) — SQLite schema、目录、密钥
-3. [docs/development.md](docs/development.md) — 命令、目录、开发顺序
-4. [docs/roadmap.md](docs/roadmap.md) — 当前阶段与验收
-5. [docs/ui-preview.md](docs/ui-preview.md) — UI 设计稿
+1. [docs/current-state.md](docs/current-state.md) — 最新进度、已验证场景、缺口、下一步
+2. [docs/architecture.md](docs/architecture.md) — 架构、模块、任务模型
+3. [docs/data-model.md](docs/data-model.md) — SQLite schema、目录、密钥
+4. [docs/development.md](docs/development.md) — 命令、目录、开发顺序
+5. [docs/roadmap.md](docs/roadmap.md) — 当前阶段与验收
+6. [docs/ui-preview.md](docs/ui-preview.md) — UI 设计稿
 
 文档和代码冲突时，先确认设计意图；设计变更先改文档再改代码。
 
@@ -90,7 +91,7 @@ Phase 1（SQLite + 只读/导入）已完成：
 - 运行输出持久化到 `logs/<run_id>.log`，`read_run_log` 供任务面板查看；
 - `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
 - 容器启动/停止/重启/日志通过 `run_command` 执行；
-- Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；数据库备份仍为 mock；
+- Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；数据库备份/恢复已接原生 mysqldump；
 - Deploy「开始升级」调用 `start_deploy`：升级 → compose up → Nginx reload → 可选重启 PHP；失败中止，同 deployment 防并发；
 - 步骤 run 关联 `deploy_runs`，任务面板显示步骤；
 - Deploy 面板通过 `preview_deploy_plan` 展示真实步骤/命令。

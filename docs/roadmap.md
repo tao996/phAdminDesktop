@@ -1,6 +1,7 @@
 # 路线图
 
-> 状态：Phase 0–2 已完成；Phase 3–4 基础能力已完成，数据库备份/生产策略仍待补；Phase 5 进行中。
+> 状态：Phase 0–2 已完成；Phase 3–4 基础能力已完成，数据库备份/恢复已原生化，生产策略仍待补；Phase 5 进行中。
+> 最新进度与缺口见 [current-state.md](current-state.md)。
 > 关联：[architecture.md](architecture.md) · [data-model.md](data-model.md)
 
 ---

@@ -2,7 +2,7 @@
 
 Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + TypeScript + SQLite 构建。
 
-> 当前状态：SQLite 数据层 + 任务执行/历史/日志 + 真实容器操作 + 白名单终端 + 多步骤部署编排 + 本地/SSH git、bundle、ftp 同步 + 同步全部 + 配置预览/生成/上传/校验/备份恢复/清理 + 部署计划与历史均已实现。vbox 已完成远程验收；生产远程写入策略与原生 sync 接入部署计划仍待确认。
+> 当前状态：原生部署、健康检查、失败配置回滚、git/bundle/ftp 同步、配置生成/上传/备份恢复、数据库 mysqldump 备份/恢复均已实现并验证。完整进度与剩余缺口见 [docs/current-state.md](docs/current-state.md)。
 
 ![项目概览](docs/screenshots/overview.png)
 
