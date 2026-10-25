@@ -184,4 +184,6 @@
 - [x] 部署后 HTTP 健康检查（curl 本地 nginx 端口；vbox 失败场景实测）
 - [x] 原生部署失败自动恢复配置备份（vbox 实测）
 - [x] Nginx reload / 访问日志接真实命令
+- [x] 数据库备份/迁移/seed/下载/列表调用 legacy CLI
+- [ ] 数据库备份原生实现
 - [ ] PHP 回退验收

@@ -30,6 +30,7 @@ interface WorkspaceProps {
   onSyncFtpItem: (itemId: string) => Promise<void>;
   onAccessLog: () => void;
   onReloadNginx: () => void;
+  onDbCommand: (args: string[], label: string) => void;
   onSyncAll: () => Promise<void>;
   onPreviewConfig: () => void;
   refreshVersion: number;
@@ -62,6 +63,7 @@ export function Workspace({
   onSyncFtpItem,
   onAccessLog,
   onReloadNginx,
+  onDbCommand,
   onSyncAll,
   onPreviewConfig,
   refreshVersion,
@@ -267,6 +269,7 @@ export function Workspace({
             server={server}
             backups={backups}
             onAction={onAction}
+            onDbCommand={onDbCommand}
           />
         )}
         {section === "logs" && <LogsPanel project={project} />}

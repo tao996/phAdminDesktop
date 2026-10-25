@@ -617,6 +617,26 @@ function App() {
     }
   };
 
+  const handleDbCommand = async (args: string[], label: string): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction(`php admin app:${activeProject.name} ${args.join(" ")}`, label);
+      return;
+    }
+    try {
+      const runId = await runCommand(activeProject.id, "php", [
+        "admin",
+        `app:${activeProject.name}`,
+        ...args,
+      ]);
+      appendLine(activeProject.id, "info", `${label}任务 ${runId} 已启动`);
+      setToast({ id: Date.now(), message: `${label}已启动` });
+    } catch (error) {
+      appendLine(activeProject.id, "error", `${label}失败：${String(error)}`);
+      setToast({ id: Date.now(), message: `${label}失败` });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -739,6 +759,7 @@ function App() {
             onSyncAll={handleSyncAllItems}
             onAccessLog={handleNginxAccessLog}
             onReloadNginx={handleNginxReload}
+            onDbCommand={handleDbCommand}
             onPreviewConfig={() => setShowConfig(true)}
             refreshVersion={runsVersion}
           />

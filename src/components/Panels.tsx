@@ -1008,9 +1008,10 @@ export function NginxPanel({
 
 interface DatabaseProps extends PanelCommonProps {
   backups: Backup[];
+  onDbCommand: (args: string[], label: string) => void;
 }
 
-export function DatabasePanel({ project, backups, onAction }: DatabaseProps) {
+export function DatabasePanel({ project, backups, onAction, onDbCommand }: DatabaseProps) {
   const [pmaDeployed, setPmaDeployed] = useState(false);
 
   return (
@@ -1024,21 +1025,21 @@ export function DatabasePanel({ project, backups, onAction }: DatabaseProps) {
           <button
             type="button"
             className="button secondary small"
-            onClick={() => onAction(`php admin app:${project.name} db:migrate`, "结构迁移")}
+            onClick={() => onDbCommand(["db:migrate"], "结构迁移")}
           >
             结构迁移
           </button>
           <button
             type="button"
             className="button secondary small"
-            onClick={() => onAction(`php admin app:${project.name} db:seed`, "Seed 基础数据")}
+            onClick={() => onDbCommand(["db:seed"], "Seed 基础数据")}
           >
             Seed
           </button>
           <button
             type="button"
             className="button primary small"
-            onClick={() => onAction(`php admin app:${project.name} db:backup download=1`, "备份并下载")}
+            onClick={() => onDbCommand(["db:backup", "download=1"], "备份并下载")}
           >
             <Icon name="database" size={13} />
             立即备份
@@ -1077,10 +1078,7 @@ export function DatabasePanel({ project, backups, onAction }: DatabaseProps) {
                           type="button"
                           className="mini-button"
                           onClick={() =>
-                            onAction(
-                              `php admin app:${project.name} db:backup:get ${backup.name}`,
-                              "下载备份",
-                            )
+                            onDbCommand(["db:backup:get", backup.name], "下载备份")
                           }
                         >
                           <Icon name="download" size={12} />
@@ -1124,7 +1122,7 @@ export function DatabasePanel({ project, backups, onAction }: DatabaseProps) {
             <button
               type="button"
               className="button secondary full"
-              onClick={() => onAction(`php admin app:${project.name} db:backup:list`, "刷新备份列表")}
+              onClick={() => onDbCommand(["db:backup:list"], "刷新备份列表")}
             >
               <Icon name="refresh" size={13} />
               刷新备份列表

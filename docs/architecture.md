@@ -286,7 +286,7 @@ SQLite
 - 任务 stdout/stderr 同时写入 `%APPDATA%/cn.gu19.phadmin.desktop/logs/<run_id>.log`，`read_run_log` 可在任务面板查看；
 - 已实现 `get_containers`：执行 `docker compose ps --format json` 并解析为容器列表；Containers 面板打开时自动刷新；
 - 容器全部启动/重启/停止、单服务日志/重启均通过 `run_command` 真实执行，完成后自动刷新；
-- Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；数据库备份仍为 mock；
+- Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；数据库备份已接 legacy CLI；
 - Deploy 面板「开始升级」已接入 `start_deploy` 编排：升级 → compose up → Nginx reload → 可选重启 PHP；任一步失败中止；同一 deployment 禁止并发部署；
 - 步骤 run 通过 `deploy_run_id` / `step_key` / `step_title` 关联 `deploy_runs`，任务面板可查看步骤；
 - 任务面板增加最近部署父记录（deploy_runs）展示；
@@ -299,6 +299,7 @@ SQLite
 - `.env` 的 MYSQL_PASSWORD / REDIS_PASSWORD 从 `env_vars` 读取，避免生成空密码导致容器启动失败；
 - Deploy 面板通过 `preview_deploy_plan` 展示真实部署步骤与命令；
 - Nginx 面板 reload / 访问日志已接真实 `docker compose exec nginx`，上传配置仍走 legacy；
+- 数据库备份/迁移/seed/下载/备份列表已通过 `php admin app:<name> db:*` 真实执行（过渡）；
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；
 - 新增 `sync_bundle_item`：本地 filesystem / SSH 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，SSH 通过 scp 上传；执行结果写入 runs 与日志；
 - 新增 config.php 预览与生成：将 deployment_settings.config_json 转 PHP 数组字面量并套用模板，纳入 generated 与远程上传；`env.example` / compose / config.php 模板已与 legacy 逐行对齐；
