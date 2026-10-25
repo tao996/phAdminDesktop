@@ -59,6 +59,7 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [generatedStatus, setGeneratedStatus] = useState<GeneratedStatus | null>(null);
   const [generating, setGenerating] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [keepBackups, setKeepBackups] = useState(5);
   const [remoteStatus, setRemoteStatus] = useState<RemoteFileStatus[]>([]);
   const [backups, setBackups] = useState<ConfigBackup[]>([]);
 
@@ -81,9 +82,15 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   };
 
   const prune = async () => {
-    if (!window.confirm("每个文件仅保留最近 5 个备份，删除更旧的备份？")) return;
+    if (
+      !window.confirm(
+        `每个文件仅保留最近 ${keepBackups} 个备份，删除更旧的备份？`,
+      )
+    ) {
+      return;
+    }
     try {
-      await pruneConfigBackups(project.id, 5);
+      await pruneConfigBackups(project.id, keepBackups);
       await loadBackups();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -354,9 +361,22 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                     </button>
                   ))}
                   {backups.length > 0 && (
-                    <button type="button" className="mini-button" onClick={() => void prune()}>
-                      清理旧备份
-                    </button>
+                    <>
+                      <input
+                        className="keep-input"
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={keepBackups}
+                        onChange={(event) =>
+                          setKeepBackups(Math.min(100, Math.max(1, Number(event.target.value) || 1)))
+                        }
+                        aria-label="保留备份数量"
+                      />
+                      <button type="button" className="mini-button" onClick={() => void prune()}>
+                        清理旧备份
+                      </button>
+                    </>
                   )}
                   {generatedStatus?.exists && (
                     <button

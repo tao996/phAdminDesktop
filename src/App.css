@@ -2673,6 +2673,18 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+.keep-input {
+  width: 40px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-align: center;
+}
+
 .config-sync-row {
   display: flex;
   align-items: flex-start;
