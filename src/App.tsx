@@ -314,6 +314,14 @@ function App() {
     });
   };
 
+  const handleExecuteCommand = (command: string) => {
+    if (!canUseTauri()) {
+      runAction(command, "部署 / 升级");
+      return;
+    }
+    handleCommand(command);
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -428,6 +436,7 @@ function App() {
             onNotify={(message) => setToast({ id: Date.now(), message })}
             onTestConnection={handleTestConnection}
             onOpenRuns={() => setShowRuns(true)}
+            onExecuteCommand={handleExecuteCommand}
             refreshVersion={runsVersion}
           />
 

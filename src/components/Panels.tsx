@@ -304,7 +304,18 @@ export function OverviewPanel({
   );
 }
 
-export function DeployPanel({ project, server, onAction }: PanelCommonProps) {
+interface DeployPanelProps extends PanelCommonProps {
+  onExecuteCommand: (command: string) => void;
+  onNotify: (message: string) => void;
+}
+
+export function DeployPanel({
+  project,
+  server,
+  onAction,
+  onExecuteCommand,
+  onNotify,
+}: DeployPanelProps) {
   const [filter, setFilter] = useState<"all" | "method" | "name">("all");
   const [method, setMethod] = useState("git");
   const [entry, setEntry] = useState("主仓库");
@@ -441,12 +452,9 @@ export function DeployPanel({ project, server, onAction }: PanelCommonProps) {
               type="button"
               className="button primary"
               onClick={() => {
-                onAction(command, "升级代码");
+                onExecuteCommand(command);
                 if (restart) {
-                  window.setTimeout(
-                    () => onAction(`php admin app:${project.name} dc:restart:php`, "重启 PHP"),
-                    900,
-                  );
+                  onNotify("升级命令已启动；重启步骤将在部署编排中串行执行");
                 }
               }}
             >
@@ -475,7 +483,9 @@ export function DeployPanel({ project, server, onAction }: PanelCommonProps) {
           </pre>
           <div className="command-hint">
             <Icon name="alert" size={13} />
-            当前为 UI 预览，按钮只模拟执行并把命令写入终端，不会连接服务器。
+            {canUseTauri()
+              ? "Tauri 模式会通过本地 / SSH 真实执行 php admin 升级命令；重启步骤将由后续部署编排串行执行。"
+              : "当前为 UI 预览，按钮只模拟执行并把命令写入终端，不会连接服务器。"}
           </div>
           <div className="step-list">
             {[

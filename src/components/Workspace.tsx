@@ -23,6 +23,7 @@ interface WorkspaceProps {
   onNotify: (message: string) => void;
   onTestConnection: () => void;
   onOpenRuns: () => void;
+  onExecuteCommand: (command: string) => void;
   refreshVersion: number;
 }
 
@@ -46,6 +47,7 @@ export function Workspace({
   onNotify,
   onTestConnection,
   onOpenRuns,
+  onExecuteCommand,
   refreshVersion,
 }: WorkspaceProps) {
   const [moreOpen, setMoreOpen] = useState(
@@ -213,7 +215,13 @@ export function Workspace({
           />
         )}
         {section === "deploy" && (
-          <DeployPanel project={project} server={server} onAction={onAction} />
+          <DeployPanel
+            project={project}
+            server={server}
+            onAction={onAction}
+            onExecuteCommand={onExecuteCommand}
+            onNotify={onNotify}
+          />
         )}
         {section === "containers" && (
           <ContainersPanel project={project} server={server} onAction={onAction} />

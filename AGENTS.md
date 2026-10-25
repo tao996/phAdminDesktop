@@ -86,11 +86,12 @@ Phase 1（SQLite + 只读/导入）已完成：
 - 终端白名单命令：`docker/php/git/ssh/ls/pwd/whoami/composer`，前端 argv 解析，不经过 shell；
 - `list_runs` / `cancel_run`：终端「任务」面板查看历史并取消；
 - `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
-- Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock。
+- Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock；
+- Deploy「开始升级」执行真实 `php admin app:<name> upgrade`；多步骤编排未接入。
 
 下一步：
 
-- 部署 / 升级编排。
+- 多步骤部署编排 / 失败中止 / 重启串行化。
 
 不要提前实现部署/SSH/Docker 写操作。先把数据层和只读链路打通。
 

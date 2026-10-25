@@ -220,10 +220,11 @@ Phase 1 已完成：
 - `get_containers` 解析 `docker compose ps --format json`，Containers 面板自动刷新；
 - Overview 容器统计使用 `get_containers`，最近活动使用 `list_runs`；
 - 终端支持白名单命令（argv 解析，不经过 shell）；
-- 备份仍为 mock。
+- Deploy 面板「开始升级」执行真实 `php admin app:<name> upgrade`；
+- 备份仍为 mock；重启/多步骤编排待接入。
 
 下一步：
 
-- 部署 / 升级编排。
+- 多步骤部署编排 / 失败中止 / 重启串行化。
 
 详见 [roadmap.md](roadmap.md)。
