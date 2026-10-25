@@ -237,7 +237,7 @@ Phase 1 已完成：
 - 真实 Phalcon 项目在本地 Docker 原生部署成功，HTTP 200；
 - 真实 Phalcon 项目在 vbox 远程原生部署成功，使用真实 5.23 镜像返回 HTTP 200；
 - 原生数据库备份：`docker compose exec -T mysql mysqldump`，文件写入 `backups/<deployment>/`；真实 MySQL 容器已验证 SQL 内容；
-- 原生备份支持本地列表与恢复，恢复通过 stdin 执行 `mysql`；
+- 原生备份支持本地列表与恢复，恢复通过 stdin 执行 `mysql`；真实容器已验证插入后恢复会回退数据；
 - 数据库迁移/seed/下载/备份列表仍走 legacy CLI；
 - vbox 远程目标目录不存在时，`ensure_target_dir` 不再依赖 `cd`，而是直接 `mkdir -p`；
 - `.env` 密码取自 `env_vars` 的 MYSQL_PASSWORD / REDIS_PASSWORD；
