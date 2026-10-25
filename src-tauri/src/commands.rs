@@ -550,15 +550,6 @@ pub fn sync_ftp_item(
     item_id: String,
 ) -> Result<String, String> {
     let lock_key = format!("{deployment_id}:{item_id}:ftp");
-    {
-        let mut syncs = state
-            .syncs
-            .lock()
-            .map_err(|error| format!("同步锁被占用: {error}"))?;
-        if !syncs.insert(lock_key.clone()) {
-            return Err("该同步项正在执行".to_string());
-        }
-    }
 
     let (local_path, remote_path, method, path, excludes_json) = {
         let connection = state
@@ -593,6 +584,16 @@ pub fn sync_ftp_item(
             .map_err(|error| format!("数据库连接被占用: {error}"))?;
         runner::load_target(&connection, &deployment_id)?
     };
+
+    {
+        let mut syncs = state
+            .syncs
+            .lock()
+            .map_err(|error| format!("同步锁被占用: {error}"))?;
+        if !syncs.insert(lock_key.clone()) {
+            return Err("该同步项正在执行".to_string());
+        }
+    }
 
     let result = (|| -> Result<String, String> {
         if method != "ftp" {

@@ -232,7 +232,7 @@ Phase 1 已完成：
 - 本地 bundle 同步项使用 git bundle + clone/fetch/merge；
 - SSH bundle 通过 scp 上传并在远程 fetch/merge；
 - ftp 同步：本地递归复制 / SSH scp -r（本地支持 excludes）；
-- 同步项级锁防止重复执行。
+- 同步项级锁防止重复执行；ftp 锁在查询失败时不会残留。
 
 下一步：
 

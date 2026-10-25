@@ -171,5 +171,6 @@
 - [x] 部署计划真实步骤预览
 - [x] 本地 generated 状态检测
 - [x] 任务面板最近部署记录
+- [x] vbox 远程 git / bundle / scp 实测通过（key_path 登录）
 - [ ] 远程配置写入
 - [ ] PHP 回退验收
