@@ -60,7 +60,12 @@ fn next_deploy_id() -> String {
     )
 }
 
-fn build_plan(project_name: &str, restart_php: bool, native: bool) -> Vec<DeployStep> {
+fn build_plan(
+    project_name: &str,
+    restart_php: bool,
+    native: bool,
+    nginx_port: i64,
+) -> Vec<DeployStep> {
     let mut steps = Vec::new();
     if !native {
         steps.push(DeployStep {
@@ -103,6 +108,25 @@ fn build_plan(project_name: &str, restart_php: bool, native: bool) -> Vec<Deploy
                 "admin".to_string(),
                 format!("app:{project_name}"),
                 "dc:restart:php".to_string(),
+            ],
+        });
+    }
+
+    if nginx_port > 0 {
+        steps.push(DeployStep {
+            key: "health-check".to_string(),
+            title: "健康检查".to_string(),
+            program: "curl".to_string(),
+            args: vec![
+                "-fsS".to_string(),
+                "--max-time".to_string(),
+                "10".to_string(),
+                "--retry".to_string(),
+                "5".to_string(),
+                "--retry-delay".to_string(),
+                "2".to_string(),
+                "--retry-connrefused".to_string(),
+                format!("http://127.0.0.1:{nginx_port}/"),
             ],
         });
     }
@@ -249,17 +273,17 @@ pub fn preview_deploy_plan(
         .db
         .lock()
         .map_err(|error| format!("数据库连接被占用: {error}"))?;
-    let project_name = connection
+    let (project_name, nginx_port) = connection
         .query_row(
-            "SELECT p.name
+            "SELECT p.name, d.nginx_port
              FROM deployments d
              JOIN projects p ON p.id = d.project_id
              WHERE d.id = ?1",
             [&deployment_id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .map_err(|error| format!("部署不存在: {error}"))?;
-    Ok(build_plan(&project_name, restart_php, native))
+    Ok(build_plan(&project_name, restart_php, native, nginx_port))
 }
 
 #[tauri::command]
@@ -270,24 +294,24 @@ pub fn start_deploy(
     restart_php: bool,
     native: bool,
 ) -> Result<DeployStart, String> {
-    let project_name = {
+    let (project_name, nginx_port) = {
         let connection = state
             .db
             .lock()
             .map_err(|error| format!("数据库连接被占用: {error}"))?;
         connection
             .query_row(
-                "SELECT p.name
+                "SELECT p.name, d.nginx_port
                  FROM deployments d
                  JOIN projects p ON p.id = d.project_id
                  WHERE d.id = ?1",
                 [&deployment_id],
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )
             .map_err(|error| format!("部署不存在: {error}"))?
     };
 
-    let steps = build_plan(&project_name, restart_php, native);
+    let steps = build_plan(&project_name, restart_php, native, nginx_port);
     let deploy_run_id = next_deploy_id();
     let plan_json =
         serde_json::to_string(&steps).map_err(|error| format!("部署计划编码失败: {error}"))?;
@@ -342,12 +366,12 @@ mod tests {
 
     #[test]
     fn plan_includes_restart_only_when_requested() {
-        let base = build_plan("demo", false, false);
+        let base = build_plan("demo", false, false, 8071);
         assert_eq!(
             base.iter()
                 .map(|step| step.key.as_str())
                 .collect::<Vec<_>>(),
-            vec!["upgrade", "compose-up", "nginx-reload"]
+            vec!["upgrade", "compose-up", "nginx-reload", "health-check"]
         );
         assert_eq!(
             base[0].args,
@@ -357,20 +381,21 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        let with_restart = build_plan("demo", true, false);
-        assert_eq!(with_restart.len(), 4);
+        let with_restart = build_plan("demo", true, false, 8071);
+        assert_eq!(with_restart.len(), 5);
         assert_eq!(with_restart[3].key, "restart-php");
+        assert_eq!(with_restart[4].key, "health-check");
     }
 
     #[test]
     fn native_plan_skips_legacy_upgrade() {
-        let native = build_plan("demo", false, true);
+        let native = build_plan("demo", false, true, 8071);
         assert_eq!(
             native
                 .iter()
                 .map(|step| step.key.as_str())
                 .collect::<Vec<_>>(),
-            vec!["compose-up", "nginx-reload"]
+            vec!["compose-up", "nginx-reload", "health-check"]
         );
         assert!(native.iter().all(|step| step.program != "php"));
     }

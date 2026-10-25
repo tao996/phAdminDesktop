@@ -16,7 +16,7 @@ use crate::AppState;
 static RUN_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 const ALLOWED_PROGRAMS: &[&str] = &[
-    "docker", "php", "git", "ssh", "ls", "pwd", "whoami", "composer",
+    "docker", "php", "git", "ssh", "ls", "pwd", "whoami", "composer", "curl",
 ];
 
 #[derive(Debug, Clone, Serialize)]
