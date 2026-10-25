@@ -31,6 +31,7 @@ pub(crate) fn migrate(connection: &Connection) -> rusqlite::Result<()> {
             kind        TEXT NOT NULL DEFAULT 'ssh',
             port        INTEGER NOT NULL DEFAULT 22,
             username    TEXT NOT NULL DEFAULT '',
+            key_path    TEXT NOT NULL DEFAULT '',
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -127,7 +128,31 @@ pub(crate) fn migrate(connection: &Connection) -> rusqlite::Result<()> {
             ON sync_items(deployment_id, sort);
         CREATE INDEX IF NOT EXISTS idx_runs_deployment_started
             ON runs(deployment_id, started_at DESC);",
-    )
+    )?;
+    ensure_column(
+        connection,
+        "servers",
+        "key_path",
+        "key_path TEXT NOT NULL DEFAULT ''",
+    )?;
+    Ok(())
+}
+
+fn ensure_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+    for existing in columns {
+        if existing? == column {
+            return Ok(());
+        }
+    }
+    connection.execute(&format!("ALTER TABLE {table} ADD COLUMN {definition}"), [])?;
+    Ok(())
 }
 
 pub(crate) fn seed_if_empty(connection: &mut Connection) -> Result<(), Box<dyn Error>> {

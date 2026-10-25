@@ -21,6 +21,7 @@ interface WorkspaceProps {
   onSectionChange: (section: WorkspaceSection) => void;
   onAction: (command: string, label: string) => void;
   onNotify: (message: string) => void;
+  onTestConnection: () => void;
 }
 
 const sections: { id: WorkspaceSection; label: string; icon: "activity" | "rocket" | "box" | "globe" | "database" | "file-text" }[] = [
@@ -41,6 +42,7 @@ export function Workspace({
   onSectionChange,
   onAction,
   onNotify,
+  onTestConnection,
 }: WorkspaceProps) {
   const [moreOpen, setMoreOpen] = useState(
     () => new URLSearchParams(window.location.search).get("menu") === "more",
@@ -101,10 +103,11 @@ export function Workspace({
           <button
             type="button"
             className="button secondary"
-            onClick={() => onAction(`php admin app:${project.name} dc:status`, "查看容器状态")}
+            title="通过 SSH / 本地执行 docker compose ps"
+            onClick={onTestConnection}
           >
             <Icon name="box" size={14} />
-            状态
+            测试连接
           </button>
           <button
             type="button"

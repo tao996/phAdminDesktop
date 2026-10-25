@@ -41,6 +41,8 @@ struct LegacySsh {
     port: i64,
     #[serde(default)]
     user: String,
+    #[serde(default)]
+    key_file: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -226,6 +228,14 @@ fn ensure_server(
         )
         .optional()?
     {
+        if let Some(key_file) = config.ssh.key_file.as_deref()
+            && !key_file.trim().is_empty()
+        {
+            transaction.execute(
+                "UPDATE servers SET key_path = ?1 WHERE id = ?2",
+                params![key_file.trim(), &id],
+            )?;
+        }
         return Ok(id);
     }
 
@@ -238,8 +248,8 @@ fn ensure_server(
     let name = format!("{user}@{host}:{port}");
     transaction.execute(
         "INSERT OR IGNORE INTO servers
-            (id, name, host, environment, status, latency, kind, port, username)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (id, name, host, environment, status, latency, kind, port, username, key_path)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             &id,
             &name,
@@ -249,7 +259,8 @@ fn ensure_server(
             "—",
             "ssh",
             port,
-            user
+            user,
+            config.ssh.key_file.as_deref().unwrap_or("")
         ],
     )?;
 
@@ -258,6 +269,14 @@ fn ensure_server(
         params![&name],
         |row| row.get::<_, String>(0),
     )?;
+    if let Some(key_file) = config.ssh.key_file.as_deref()
+        && !key_file.trim().is_empty()
+    {
+        transaction.execute(
+            "UPDATE servers SET key_path = ?1 WHERE id = ?2",
+            params![key_file.trim(), &actual_id],
+        )?;
+    }
     Ok(actual_id)
 }
 

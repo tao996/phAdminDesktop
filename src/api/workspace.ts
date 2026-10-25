@@ -44,6 +44,20 @@ export interface ImportSummary {
   syncItems: number;
 }
 
+export interface RunOutput {
+  runId: string;
+  deploymentId: string;
+  stream: "stdout" | "stderr";
+  line: string;
+}
+
+export interface RunFinished {
+  runId: string;
+  deploymentId: string;
+  exitCode: number | null;
+  status: "succeeded" | "failed" | "canceled" | "running";
+}
+
 export function canUseTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -54,4 +68,16 @@ export async function loadWorkspace(): Promise<WorkspaceResponse> {
 
 export async function importLegacyConfig(json: string): Promise<ImportSummary> {
   return invoke<ImportSummary>("import_legacy_config", { json });
+}
+
+export async function runCommand(
+  deploymentId: string,
+  program: string,
+  args: string[],
+): Promise<string> {
+  return invoke<string>("run_command", { deploymentId, program, args });
+}
+
+export async function cancelRun(runId: string): Promise<void> {
+  return invoke<void>("cancel_run", { runId });
 }

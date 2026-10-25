@@ -149,6 +149,7 @@
 - [x] 架构/数据模型/开发文档
 - [x] legacy `config:export` 导入
 - [x] sync_items / runs 表（schema + 导入）
-- [ ] SSH / 终端
+- [x] 基础任务执行（本地/ssh + stdout/stderr + runs）
+- [ ] 终端交互（任意命令、取消按钮、任务面板）
 - [ ] 部署核心
 - [ ] PHP 回退验收

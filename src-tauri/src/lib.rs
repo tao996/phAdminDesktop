@@ -2,14 +2,19 @@ mod commands;
 mod db;
 mod legacy;
 mod models;
+mod runner;
 
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::process::Child;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 use tauri::Manager;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
+    pub runs: Mutex<HashMap<String, Arc<Mutex<Child>>>>,
+    pub canceled: Mutex<HashSet<String>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,12 +27,16 @@ pub fn run() {
             let connection = db::open(&data_dir.join("phadmin.db"))?;
             app.manage(AppState {
                 db: Mutex::new(connection),
+                runs: Mutex::new(HashMap::new()),
+                canceled: Mutex::new(HashSet::new()),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_workspace,
-            commands::import_legacy_config
+            commands::import_legacy_config,
+            runner::run_command,
+            runner::cancel_run
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

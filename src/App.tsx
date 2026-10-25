@@ -24,7 +24,17 @@ import {
   type TerminalLine,
   type TerminalLineType,
 } from "./data/mock";
-import { canUseTauri, importLegacyConfig, loadWorkspace, type ImportSummary, type WorkspaceResponse } from "./api/workspace";
+import { listen } from "@tauri-apps/api/event";
+import {
+  canUseTauri,
+  importLegacyConfig,
+  loadWorkspace,
+  runCommand,
+  type ImportSummary,
+  type RunFinished,
+  type RunOutput,
+  type WorkspaceResponse,
+} from "./api/workspace";
 import type { WorkspaceSection } from "./components/Panels";
 
 function now() {
@@ -189,6 +199,48 @@ function App() {
     }));
   };
 
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    let disposed = false;
+    let unlisten: Array<() => void> = [];
+
+    void Promise.all([
+      listen<RunOutput>("run-output", (event) => {
+        const payload = event.payload;
+        appendLine(
+          payload.deploymentId,
+          payload.stream === "stderr" ? "error" : "info",
+          payload.line,
+        );
+      }),
+      listen<RunFinished>("run-finished", (event) => {
+        const payload = event.payload;
+        if (payload.status === "succeeded") {
+          appendLine(payload.deploymentId, "success", "✔ 任务完成（exit 0）");
+        } else if (payload.status === "canceled") {
+          appendLine(payload.deploymentId, "error", "■ 任务已取消");
+        } else {
+          appendLine(
+            payload.deploymentId,
+            "error",
+            `✘ 任务失败（exit ${payload.exitCode ?? "unknown"}）`,
+          );
+        }
+      }),
+    ]).then((listeners) => {
+      if (disposed) {
+        listeners.forEach((stop) => stop());
+      } else {
+        unlisten = listeners;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unlisten.forEach((stop) => stop());
+    };
+  }, []);
+
   const runAction = (command: string, label: string) => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -230,9 +282,39 @@ function App() {
 
   const handleCommand = (command: string) => {
     if (!activeProject) return;
-    appendLine(activeProject.id, "command", `$ ${command}`);
-    appendLine(activeProject.id, "info", "→ 命令已接收，桌面端逻辑尚未接入");
+    const projectId = activeProject.id;
+    const trimmed = command.trim();
+    appendLine(projectId, "command", `$ ${trimmed}`);
+
+    if (canUseTauri() && trimmed === "docker compose ps") {
+      setToast({ id: Date.now(), message: "正在读取容器状态…" });
+      void runCommand(projectId, "docker", ["compose", "ps"]).catch((error: unknown) => {
+        appendLine(projectId, "error", `启动失败：${String(error)}`);
+        setToast({ id: Date.now(), message: "容器状态读取失败" });
+      });
+      return;
+    }
+
+    appendLine(projectId, "info", "→ 当前终端仅接入 docker compose ps；其它命令仍为 UI 模拟");
     setToast({ id: Date.now(), message: "命令已写入终端（模拟）" });
+  };
+
+  const handleTestConnection = () => {
+    if (!activeProject) return;
+    const projectId = activeProject.id;
+    appendLine(projectId, "command", "$ docker compose ps");
+
+    if (!canUseTauri()) {
+      appendLine(projectId, "info", "→ 浏览器预览模式，不执行真实命令");
+      setToast({ id: Date.now(), message: "浏览器预览：模拟执行" });
+      return;
+    }
+
+    setToast({ id: Date.now(), message: "正在连接服务器并读取容器状态…" });
+    void runCommand(projectId, "docker", ["compose", "ps"]).catch((error: unknown) => {
+      appendLine(projectId, "error", `连接失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "连接失败，请检查 SSH / Docker" });
+    });
   };
 
   const handleImportLegacy = async (json: string): Promise<ImportSummary> => {
@@ -329,6 +411,7 @@ function App() {
             onSectionChange={setSection}
             onAction={runAction}
             onNotify={(message) => setToast({ id: Date.now(), message })}
+            onTestConnection={handleTestConnection}
           />
 
           {activeProject && (

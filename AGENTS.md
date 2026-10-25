@@ -82,11 +82,13 @@ Phase 1（SQLite + 只读/导入）已完成：
 - `domains` / `env_vars` / `sync_items` / `deployment_settings` / `runs` 表；
 - `load_workspace` 只读 command；
 - `import_legacy_config`：解析 `php admin config:export` JSON，设置页可导入；
+- `run_command`：本地 filesystem / 系统 `ssh` 执行，stdout/stderr 事件 + `runs`；
+- `cancel_run`：终止运行中的任务；
 - UI 的服务器/项目/部署来自 SQLite；容器/活动/备份仍为 mock。
 
 下一步：
 
-- SSH 连接与 `runs` 任务执行；
+- 任务面板、取消按钮、任意终端命令；
 - 用真实数据替换容器/活动/备份 mock；
 - 部署 / 升级编排。
 
