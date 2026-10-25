@@ -119,9 +119,9 @@ phAdminDesktop/
 ### TypeScript / React
 
 - 不直接访问 SQLite；
-- API 调用集中在 `src/api/`（待建），组件不散落 `invoke`；
+- API 调用集中在 `src/api/`，组件不散落 `invoke`；
 - 类型与 Rust serde 结构保持一致；
-- 终端使用 xterm.js（待接入）；
+- 终端为 React 自绘 xterm 风格，不使用 xterm.js；
 - 状态管理先用 React hooks；复杂后再引入 store。
 
 ### SQLite
@@ -224,20 +224,18 @@ Phase 1 已完成：
 - 终端支持白名单命令（argv 解析，不经过 shell）；
 - Deploy 面板「开始升级」调用 `start_deploy`，按步骤执行升级 → compose up → Nginx reload → 可选重启 PHP；
 - 任一步失败中止；同一 deployment 禁止并发部署；步骤 run 关联 `deploy_runs`；
-- 备份仍为 mock；原生同步/配置渲染待接入；
-- Deploy 面板读取真实 `sync_items` / `deployment_settings` 并展示同步项；
-- 配置预览弹窗展示同步项与 config/hooks/docker/router/nginx JSON；
-- rendered .env 预览：项目名/路径/端口/默认镜像，不写盘。
-- 本地 filesystem / SSH 的 git 同步项支持 clone / pull；
-- 本地 bundle 同步项使用 git bundle + clone/fetch/merge；
-- SSH bundle 通过 scp 上传并在远程 fetch/merge；
-- ftp 同步：本地递归复制 / SSH scp -r（本地支持 excludes）；
 - 同步项级锁防止重复执行；ftp 锁在查询失败时不会残留；
-- 远程配置上传：`apply_generated_config` 覆盖前写 `.bak-<millis>`，上传后回读校验，支持列表/恢复/可配置清理，vbox 实测。
-- 同步全部：本地 / vbox 远程 git → bundle → ftp 顺序执行实测通过。
+- 配置预览：.env / nginx / compose / config.php；本地 generated 写入与状态检测；
+- 配置上传：逐文件回读校验，覆盖前 `.bak-<millis>`；支持备份列表、恢复、可配置保留数量清理；
+- 模板 `env.example` / `docker-compose.yaml` / `config.php.template` 与 legacy 逐行对齐；
+- “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
+- 部署历史展示最近 deploy_runs；Deploy 面板展示真实计划；
+- vbox 已验证远程 git / bundle / ftp / 配置上传 / 备份恢复 / 同步全部。
 
 下一步：
 
-- 配置写入 / docker-compose / Nginx 生成。
+- 将“同步全部 + 配置上传”接入部署启动流程；
+- 生产环境远程写入策略与回滚入口；
+- PHP 回退验收。
 
 详见 [roadmap.md](roadmap.md)。

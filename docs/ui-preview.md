@@ -1,6 +1,6 @@
 # PhAdmin Desktop UI Preview
 
-> 状态：静态 UI 原型已实现；业务逻辑未接入
+> 状态：静态 UI 原型已实现；当前版本已在原型上接入 SQLite、任务、容器、同步、配置生成与部署编排。本文件保留早期原型说明，实际行为以 README / architecture / development 为准。
 > 主数据源：SQLite
 > 执行内核：Tauri 2 / Rust 原生（`php admin` 仅作迁移与回退参考）
 > 日期：2026-10-24
@@ -162,7 +162,7 @@ PhAdmin Desktop
 ```text
 ┌ 服务器 ─────────────────────────────┐
 │ ● prod      47.106.226.129:22  已连接 │
-│ ○ staging   192.168.56.120:22  未连接 │
+│ ○ staging   192.0.2.10:22     未连接 │
 │ ○ local     filesystem         本地   │
 │ ─────────────────────────────────── │
 │ + 新建服务器配置                     │
@@ -201,7 +201,7 @@ PhAdmin Desktop
 
 #### 添加项目向导
 
-> 下列步骤中的 `php admin init` 仅作 legacy 行为对照；桌面端直接写 SQLite + 生成到 `deployments/<id>/generated/`。
+> 下列步骤中的 `php admin init` 仅作 legacy 行为对照；桌面端直接写 SQLite + 生成到 `<app_data>/generated/<deployment_id>/`。
 
 步骤 1：基本信息
 
@@ -683,11 +683,11 @@ queued → running → succeeded
 |---|---|
 | 服务器/项目/部署/同步项 | SQLite |
 | 运行历史 | SQLite `runs` |
-| 命令日志 | `<app_data>/deployments/<id>/logs/<runId>.log` |
-| 生成配置 | `<app_data>/deployments/<id>/generated/` |
-| 备份文件 | `<app_data>/deployments/<id>/backups/` |
+| 命令日志 | `<app_data>/logs/<runId>.log` |
+| 生成配置 | `<app_data>/generated/<deployment_id>/` |
+| 远程配置备份 | 部署目录下 `<file>.bak-<millis>` |
 | 窗口/主题/最近项目 | Tauri Store |
-| 密钥/密码 | OS keychain，SQLite 只存引用 |
+| SSH 登录 | SQLite 只存 `key_path` 引用；不存密码/私钥 |
 
 ### 9.4 安全
 

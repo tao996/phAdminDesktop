@@ -1,7 +1,7 @@
 # 架构设计
 
-> 状态：设计基线（静态 UI + SQLite 读写/导入 + 任务执行基础已实现，部署编排未接入）
-> 最后更新：2026-10-24
+> 状态：已实现（SQLite 数据层、任务执行、容器、部署编排、git/bundle/ftp 同步、配置生成/上传/备份恢复、部署历史）
+> 最后更新：2026-10-25
 > 关联文档：[data-model.md](data-model.md) · [ui-preview.md](ui-preview.md) · [roadmap.md](roadmap.md)
 
 ---
@@ -115,80 +115,52 @@ Server 1 ─── n Deployment ─── 1 Project
 ```text
 <app_data_dir>/
   phadmin.db
-  deployments/
+  generated/
     <deployment_id>/
-      generated/        # .env / compose / nginx / php.ini / config.php
-      backups/          # 数据库备份
-      logs/             # 命令日志
+      .env
+      nginx.conf
+      docker-compose.yaml
+      config.php
+  logs/
+    <run_id>.log
+  tmp/
+    bundle-*.bundle
+  backups/
+    phadmin-*.db
 ```
 
 禁止再把同一项目的 prod/staging 生成物写到同一个 `deploy/projects/<项目>/` 目录。
 
 ---
 
-## 5. Rust 模块建议
+## 5. Rust 模块
 
 ```text
 src-tauri/src/
-  lib.rs
+  lib.rs            # AppState、command 注册、setup
   main.rs
-  commands/
-    servers.rs
-    projects.rs
-    deployments.rs
-    runs.rs
-    settings.rs
-  db/
-    mod.rs
-    migrations/
-    servers.rs
-    projects.rs
-    deployments.rs
-    runs.rs
-  config/
-    model.rs
-    render.rs
-    legacy_import.rs
-    legacy_export.rs
-  ssh/
-    mod.rs
-    exec.rs
-    sftp.rs
-  sync/
-    git.rs
-    bundle.rs
-    ftp.rs
-  docker/
-    compose.rs
-  nginx/
-    template.rs
-    ssl.rs
-  database/
-    backup.rs
-    migrate.rs
-    proxy.rs
-  deploy/
-    init.rs
-    upgrade.rs
-    reset.rs
-    hooks.rs
-  runs/
-    manager.rs
-    log.rs
-    lock.rs
-  error.rs
+  commands.rs       # workspace/import/runs/config/sync/git/bundle/ftp
+  db.rs             # schema、migration、seed、查询
+  models.rs         # serde 模型
+  legacy.rs         # legacy config:export 导入
+  runner.rs         # 本地/SSH 命令、容器、日志、目标路径
+  deploy.rs         # 多步骤部署编排、部署历史
+  render.rs         # .env / nginx / compose / config.php 渲染
+  config_apply.rs   # 远程配置上传、校验、备份/恢复/清理
+  templates/        # env.example / docker-compose.yaml / config.php.template
 ```
 
-实现优先级：
+已实现顺序：
 
-1. `db` + `commands`：服务器/项目/部署 CRUD、运行历史；
-2. `ssh` + `runs`：连接、exec、流式输出、取消；
-3. `deploy/init` + `upgrade`：核心部署；
-4. `docker` + `nginx`；
-5. `database` + SSL；
-6. `config/legacy_*`：导入/导出/回退。
+1. SQLite + legacy 导入；
+2. 本地/SSH 命令、流式输出、取消、日志；
+3. 容器真实操作；
+4. 多步骤部署编排 + 部署历史；
+5. 原生 git / bundle / ftp 同步；
+6. 配置渲染、generated 写入、远程上传/校验/备份恢复/清理；
+7. 同步全部与失败中止。
 
-**不要一次性写满所有模块。** 每步先落 SQLite 和测试，再接 UI。
+尚未完成：原生同步/配置上传自动嵌入 `start_deploy`；生产远程写入策略；PHP 回退验收。
 
 ---
 
@@ -222,8 +194,9 @@ frontend invoke("run_command", { deploymentId, command, args })
 | 密码/密钥引用 | SQLite 存引用，实际值进 OS keychain |
 | 运行记录 | SQLite |
 | 命令输出 | 文件（`logs/<runId>.log`），DB 存路径 |
-| 生成的 `.env`/compose/nginx/config | `<app_data>/deployments/<id>/generated/` |
-| 备份 | `<app_data>/deployments/<id>/backups/` |
+| 生成的 `.env`/compose/nginx/config.php | `<app_data>/generated/<deployment_id>/` |
+| 运行日志 | `<app_data>/logs/<run_id>.log` |
+| 远程配置备份 | 部署目录下 `<file>.bak-<millis>` |
 | 设置 | SQLite `settings` 或 Tauri Store |
 | PHP fallback 配置 | 导出到临时目录，不写回 SQLite |
 
@@ -313,7 +286,7 @@ SQLite
 - 任务 stdout/stderr 同时写入 `%APPDATA%/cn.gu19.phadmin.desktop/logs/<run_id>.log`，`read_run_log` 可在任务面板查看；
 - 已实现 `get_containers`：执行 `docker compose ps --format json` 并解析为容器列表；Containers 面板打开时自动刷新；
 - 容器全部启动/重启/停止、单服务日志/重启均通过 `run_command` 真实执行，完成后自动刷新；
-- Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；备份仍为 mock；
+- Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；数据库备份仍为 mock；
 - Deploy 面板「开始升级」已接入 `start_deploy` 编排：升级 → compose up → Nginx reload → 可选重启 PHP；任一步失败中止；同一 deployment 禁止并发部署；
 - 步骤 run 通过 `deploy_run_id` / `step_key` / `step_title` 关联 `deploy_runs`，任务面板可查看步骤；
 - 任务面板增加最近部署父记录（deploy_runs）展示；

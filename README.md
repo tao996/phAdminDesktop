@@ -2,9 +2,21 @@
 
 Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + TypeScript + SQLite 构建。
 
-> 当前状态：静态 UI + SQLite 只读/导入 + 任务执行/历史/日志 + 真实容器状态与操作 + 白名单终端 + 多步骤部署编排 + git/bundle/ftp 同步 + 配置预览 + 本地 generated 写入/变更检测已实现；远程配置写入尚未接入。
+> 当前状态：SQLite 数据层 + 任务执行/历史/日志 + 真实容器操作 + 白名单终端 + 多步骤部署编排 + 本地/SSH git、bundle、ftp 同步 + 同步全部 + 配置预览/生成/上传/校验/备份恢复/清理 + 部署计划与历史均已实现。vbox 已完成远程验收；生产远程写入策略与原生 sync 接入部署计划仍待确认。
 
 ![项目概览](docs/screenshots/overview.png)
+
+## 已实现能力
+
+- SQLite 工作区、legacy `config:export` 导入、多服务器/多项目 deployment；
+- 本地 / SSH 命令执行、流式输出、取消、run 历史与日志；
+- 容器真实状态、启动/停止/重启/日志；
+- 多步骤部署：legacy upgrade → compose up → Nginx reload → 可选重启 PHP；
+- 原生同步：git / bundle / ftp，本地与 SSH，同步项级锁；
+- “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
+- 配置预览与生成：`.env` / `nginx.conf` / `docker-compose.yaml` / `config.php`；
+- 配置上传后回读校验、`.bak-<millis>` 备份、差异检查、恢复、可配置保留数量清理；
+- 部署计划真实步骤、最近部署历史、配置状态检测。
 
 ## 目标
 

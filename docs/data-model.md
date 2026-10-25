@@ -244,18 +244,16 @@ PRAGMA synchronous = NORMAL;
   phadmin.db-shm
   backups/
     phadmin-<timestamp>.db
-  deployments/
+  generated/
     <deployment_id>/
-      generated/
-        .env
-        docker-compose.yaml
-        docker/nginx/sites/default.conf
-        docker/php/php.ini
-        src/config/config.php
-      backups/
-        <db>-<timestamp>.sql.gz
-      logs/
-        <run_id>.log
+      .env
+      nginx.conf
+      docker-compose.yaml
+      config.php
+  logs/
+    <run_id>.log
+  tmp/
+    bundle-<millis>.bundle
   exports/
     <deployment_id>-<timestamp>/
       server.php
@@ -266,8 +264,8 @@ PRAGMA synchronous = NORMAL;
 
 - 不默认写入旧仓库的 `deploy/projects/`；
 - 只有“导出 legacy 回退配置”时才写 `exports/`；
-- `generated/` 可按需重建，不是事实源；
-- 备份/日志可清理，SQLite 只保留元数据。
+- `generated/` 可按需重建，不是事实源；远程覆盖前写 `<file>.bak-<millis>`；
+- 日志/临时 bundle 可清理，SQLite 只保留元数据。
 
 ---
 

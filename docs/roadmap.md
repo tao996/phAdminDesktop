@@ -1,6 +1,6 @@
 # 路线图
 
-> 状态：规划中
+> 状态：Phase 0–2 已完成；Phase 3–4 基础能力已完成，数据库备份/生产策略仍待补；Phase 5 进行中。
 > 关联：[architecture.md](architecture.md) · [data-model.md](data-model.md)
 
 ---
@@ -43,7 +43,7 @@
 - 同一项目可绑定 prod/staging 两个 deployment；
 - 导入幂等，重复导入不产生重复行。
 
-### Phase 2：状态与终端
+### Phase 2：状态与终端（已完成）
 
 - `ssh` exec、流式 stdout/stderr、取消；
 - `runs` 表 + 日志文件；
@@ -58,7 +58,7 @@
 - 运行记录可查；
 - 不阻塞主界面。
 
-### Phase 3：部署核心
+### Phase 3：部署核心（基础已完成）
 
 - `init`：目录准备、配置生成、代码同步、compose up、nginx、hooks；
 - `upgrade`：git/bundle/ftp、method/name/full、配置更新；
@@ -74,7 +74,7 @@
 - 失败可回滚/重试；
 - 同一 deployment 不会并发写。
 
-### Phase 4：Docker / Nginx / 数据库
+### Phase 4：Docker / Nginx / 数据库（部分完成）
 
 - `dc:status/restart/logs`；
 - `nginx:reload/add/remove/ssl`；
@@ -89,7 +89,7 @@
 - `db:proxy` 后台运行可停止；
 - 危险操作有确认。
 
-### Phase 5：迁移与下线
+### Phase 5：迁移与下线（进行中）
 
 - SQLite → legacy PHP 配置导出；
 - 差分测试全量通过；
@@ -177,4 +177,5 @@
 - [x] Deploy 面板“同步全部”（顺序执行并等待 git run；vbox 远程链路实测）
 - [x] 模板与 legacy 逐行对齐（env/compose/config.php）
 - [ ] 远程配置写入产品策略
+- [ ] 原生 sync / 配置上传接入部署启动
 - [ ] PHP 回退验收
