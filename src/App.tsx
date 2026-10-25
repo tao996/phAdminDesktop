@@ -6,6 +6,7 @@ import { ProjectTabs } from "./components/ProjectTabs";
 import { Workspace } from "./components/Workspace";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { RunsModal } from "./components/RunsModal";
+import { ConfigModal } from "./components/ConfigModal";
 import {
   AddProjectModal,
   CommandPalette,
@@ -93,6 +94,7 @@ function App() {
   const [showPalette, setShowPalette] = useState(boot.dialog === "command");
   const [showSettings, setShowSettings] = useState(boot.dialog === "settings");
   const [showRuns, setShowRuns] = useState(false);
+  const [showConfig, setShowConfig] = useState(boot.dialog === "config");
   const [runsVersion, setRunsVersion] = useState(0);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
 
@@ -548,6 +550,7 @@ function App() {
             onStartDeploy={handleStartDeploy}
             onSyncItem={handleSyncItem}
             onSyncBundleItem={handleSyncBundleItem}
+            onPreviewConfig={() => setShowConfig(true)}
             refreshVersion={runsVersion}
           />
 
@@ -599,6 +602,10 @@ function App() {
           onClose={() => setShowRuns(false)}
           onNotify={(message) => setToast({ id: Date.now(), message })}
         />
+      )}
+
+      {showConfig && activeProject && (
+        <ConfigModal project={activeProject} onClose={() => setShowConfig(false)} />
       )}
 
       {showSettings && (

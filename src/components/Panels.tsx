@@ -310,15 +310,16 @@ interface DeployPanelProps extends PanelCommonProps {
   onStartDeploy: (restartPhp: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
+  onPreviewConfig: () => void;
 }
 
 export function DeployPanel({
   project,
   server,
-  onAction,
   onStartDeploy,
   onSyncItem,
   onSyncBundleItem,
+  onPreviewConfig,
 }: DeployPanelProps) {
   const [filter, setFilter] = useState<"all" | "method" | "name">("all");
   const [method, setMethod] = useState("git");
@@ -498,7 +499,7 @@ export function DeployPanel({
             <button
               type="button"
               className="button secondary"
-              onClick={() => onAction(`php admin app:${project.name} init`, "预览配置")}
+              onClick={onPreviewConfig}
             >
               <Icon name="file-text" size={14} />
               预览配置

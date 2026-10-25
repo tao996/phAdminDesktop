@@ -27,6 +27,7 @@ interface WorkspaceProps {
   onStartDeploy: (restartPhp: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
+  onPreviewConfig: () => void;
   refreshVersion: number;
 }
 
@@ -54,6 +55,7 @@ export function Workspace({
   onStartDeploy,
   onSyncItem,
   onSyncBundleItem,
+  onPreviewConfig,
   refreshVersion,
 }: WorkspaceProps) {
   const [moreOpen, setMoreOpen] = useState(
@@ -228,6 +230,7 @@ export function Workspace({
             onStartDeploy={onStartDeploy}
             onSyncItem={onSyncItem}
             onSyncBundleItem={onSyncBundleItem}
+            onPreviewConfig={onPreviewConfig}
           />
         )}
         {section === "containers" && (

@@ -226,6 +226,7 @@ Phase 1 已完成：
 - 任一步失败中止；同一 deployment 禁止并发部署；步骤 run 关联 `deploy_runs`；
 - 备份仍为 mock；原生同步/配置渲染待接入；
 - Deploy 面板读取真实 `sync_items` / `deployment_settings` 并展示同步项；
+- 配置预览弹窗展示同步项与 config/hooks/docker/router/nginx JSON；
 - 本地 filesystem / SSH 的 git 同步项支持 clone / pull；
 - 本地 bundle 同步项使用 git bundle + clone/fetch/merge；
 - SSH bundle 通过 scp 上传并在远程 fetch/merge；
