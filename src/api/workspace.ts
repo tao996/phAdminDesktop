@@ -190,3 +190,10 @@ export async function loadDeploymentConfig(
 ): Promise<DeploymentConfig> {
   return invoke<DeploymentConfig>("load_deployment_config", { deploymentId });
 }
+
+export async function syncGitItem(
+  deploymentId: string,
+  itemId: string,
+): Promise<string> {
+  return invoke<string>("sync_git_item", { deploymentId, itemId });
+}

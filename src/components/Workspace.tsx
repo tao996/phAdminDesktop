@@ -25,6 +25,7 @@ interface WorkspaceProps {
   onOpenRuns: () => void;
   onExecuteCommand: (command: string) => void;
   onStartDeploy: (restartPhp: boolean) => void;
+  onSyncItem: (itemId: string) => Promise<void>;
   refreshVersion: number;
 }
 
@@ -50,6 +51,7 @@ export function Workspace({
   onOpenRuns,
   onExecuteCommand,
   onStartDeploy,
+  onSyncItem,
   refreshVersion,
 }: WorkspaceProps) {
   const [moreOpen, setMoreOpen] = useState(
@@ -222,6 +224,7 @@ export function Workspace({
             server={server}
             onAction={onAction}
             onStartDeploy={onStartDeploy}
+            onSyncItem={onSyncItem}
           />
         )}
         {section === "containers" && (

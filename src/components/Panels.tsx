@@ -308,6 +308,7 @@ export function OverviewPanel({
 
 interface DeployPanelProps extends PanelCommonProps {
   onStartDeploy: (restartPhp: boolean) => void;
+  onSyncItem: (itemId: string) => Promise<void>;
 }
 
 export function DeployPanel({
@@ -315,6 +316,7 @@ export function DeployPanel({
   server,
   onAction,
   onStartDeploy,
+  onSyncItem,
 }: DeployPanelProps) {
   const [filter, setFilter] = useState<"all" | "method" | "name">("all");
   const [method, setMethod] = useState("git");
@@ -324,6 +326,7 @@ export function DeployPanel({
   const [restart, setRestart] = useState(true);
   const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!canUseTauri()) return;
@@ -523,6 +526,20 @@ export function DeployPanel({
                 <span className="sync-item" key={item.id}>
                   <span className="tag">{item.method}</span>
                   {item.name || item.path || item.id}
+                  {item.method === "git" && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      title="本地 filesystem：clone 或 pull 此同步项"
+                      disabled={syncingId === item.id}
+                      onClick={() => {
+                        setSyncingId(item.id);
+                        void onSyncItem(item.id).finally(() => setSyncingId(null));
+                      }}
+                    >
+                      {syncingId === item.id ? "启动中…" : "同步"}
+                    </button>
+                  )}
                 </span>
               ))}
             </div>

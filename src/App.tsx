@@ -33,6 +33,7 @@ import {
   loadWorkspace,
   runCommand,
   startDeploy,
+  syncGitItem,
   type DeployFinished,
   type DeployStepEvent,
   type ImportSummary,
@@ -387,6 +388,24 @@ function App() {
     }
   };
 
+  const handleSyncItem = async (itemId: string): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction("git pull", "同步代码");
+      return;
+    }
+
+    const projectId = activeProject.id;
+    try {
+      const runId = await syncGitItem(projectId, itemId);
+      appendLine(projectId, "info", `同步任务 ${runId} 已启动`);
+      setToast({ id: Date.now(), message: "代码同步已启动" });
+    } catch (error) {
+      appendLine(projectId, "error", `同步启动失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "同步启动失败" });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -503,6 +522,7 @@ function App() {
             onOpenRuns={() => setShowRuns(true)}
             onExecuteCommand={handleExecuteCommand}
             onStartDeploy={handleStartDeploy}
+            onSyncItem={handleSyncItem}
             refreshVersion={runsVersion}
           />
 
