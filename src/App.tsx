@@ -571,6 +571,52 @@ function App() {
     }
   };
 
+  const handleNginxReload = async (): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction("docker compose exec nginx nginx -s reload", "重载 Nginx");
+      return;
+    }
+    try {
+      const runId = await runCommand(activeProject.id, "docker", [
+        "compose",
+        "exec",
+        "nginx",
+        "nginx",
+        "-s",
+        "reload",
+      ]);
+      appendLine(activeProject.id, "info", `Nginx reload 任务 ${runId} 已启动`);
+      setToast({ id: Date.now(), message: "Nginx reload 已启动" });
+    } catch (error) {
+      appendLine(activeProject.id, "error", `Nginx reload 失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "Nginx reload 失败" });
+    }
+  };
+
+  const handleNginxAccessLog = async (): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction("docker compose exec nginx tail -n 100 /var/log/nginx/access.log", "查看访问日志");
+      return;
+    }
+    try {
+      const runId = await runCommand(activeProject.id, "docker", [
+        "compose",
+        "exec",
+        "nginx",
+        "tail",
+        "-n",
+        "100",
+        "/var/log/nginx/access.log",
+      ]);
+      appendLine(activeProject.id, "info", `访问日志任务 ${runId} 已启动`);
+      setToast({ id: Date.now(), message: "正在读取访问日志" });
+    } catch (error) {
+      appendLine(activeProject.id, "error", `访问日志失败：${String(error)}`);
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -691,6 +737,8 @@ function App() {
             onSyncBundleItem={handleSyncBundleItem}
             onSyncFtpItem={handleSyncFtpItem}
             onSyncAll={handleSyncAllItems}
+            onAccessLog={handleNginxAccessLog}
+            onReloadNginx={handleNginxReload}
             onPreviewConfig={() => setShowConfig(true)}
             refreshVersion={runsVersion}
           />

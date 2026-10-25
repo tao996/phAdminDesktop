@@ -16,6 +16,7 @@ Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + Type
 - “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
 - 配置预览与生成：`.env` / `nginx.conf` / `docker-compose.yaml` / `config.php`；
 - 配置上传后回读校验、`.bak-<millis>` 备份、差异检查、恢复、可配置保留数量清理；
+- Nginx reload / 访问日志接真实 `docker compose exec nginx`；
 - 部署计划真实步骤、最近部署历史、配置状态检测。
 
 ## 目标

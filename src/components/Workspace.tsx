@@ -28,6 +28,8 @@ interface WorkspaceProps {
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
   onSyncFtpItem: (itemId: string) => Promise<void>;
+  onAccessLog: () => void;
+  onReloadNginx: () => void;
   onSyncAll: () => Promise<void>;
   onPreviewConfig: () => void;
   refreshVersion: number;
@@ -58,6 +60,8 @@ export function Workspace({
   onSyncItem,
   onSyncBundleItem,
   onSyncFtpItem,
+  onAccessLog,
+  onReloadNginx,
   onSyncAll,
   onPreviewConfig,
   refreshVersion,
@@ -249,7 +253,13 @@ export function Workspace({
           />
         )}
         {section === "nginx" && (
-          <NginxPanel project={project} server={server} onAction={onAction} />
+          <NginxPanel
+            project={project}
+            server={server}
+            onAction={onAction}
+            onReloadNginx={onReloadNginx}
+            onAccessLog={onAccessLog}
+          />
         )}
         {section === "database" && (
           <DatabasePanel

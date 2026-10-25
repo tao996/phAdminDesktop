@@ -903,7 +903,15 @@ export function ContainersPanel({
   );
 }
 
-export function NginxPanel({ project, onAction }: PanelCommonProps) {
+export function NginxPanel({
+  project,
+  onAction,
+  onReloadNginx,
+  onAccessLog,
+}: PanelCommonProps & {
+  onReloadNginx: () => void;
+  onAccessLog: () => void;
+}) {
   return (
     <div className="panel-stack">
       <div className="two-column wide-left">
@@ -955,7 +963,7 @@ export function NginxPanel({ project, onAction }: PanelCommonProps) {
             <button
               type="button"
               className="button secondary"
-              onClick={() => onAction("php admin nginx:reload", "重载 Nginx")}
+              onClick={onReloadNginx}
             >
               <Icon name="refresh" size={14} />
               语法检查并重载
@@ -987,7 +995,7 @@ export function NginxPanel({ project, onAction }: PanelCommonProps) {
           <button
             type="button"
             className="button ghost full"
-            onClick={() => onAction("php admin nginx:log:access", "查看访问日志")}
+            onClick={onAccessLog}
           >
             查看完整访问日志
             <Icon name="chevron-right" size={13} />

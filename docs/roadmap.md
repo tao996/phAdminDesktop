@@ -183,4 +183,5 @@
 - [x] 真实 Phalcon 项目 vbox 远程原生部署（5.23 镜像，HTTP 200）
 - [x] 部署后 HTTP 健康检查（curl 本地 nginx 端口；vbox 失败场景实测）
 - [x] 原生部署失败自动恢复配置备份（vbox 实测）
+- [x] Nginx reload / 访问日志接真实命令
 - [ ] PHP 回退验收

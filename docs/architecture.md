@@ -298,7 +298,7 @@ SQLite
 - 原生部署已用真实 Phalcon 项目在本地 Docker 与 vbox 远程跑通；vbox 使用真实 5.23 镜像返回 HTTP 200；
 - `.env` 的 MYSQL_PASSWORD / REDIS_PASSWORD 从 `env_vars` 读取，避免生成空密码导致容器启动失败；
 - Deploy 面板通过 `preview_deploy_plan` 展示真实部署步骤与命令；
-- 「预览配置」打开只读 ConfigModal，查看 sync_items 与 config/hooks/docker/router/nginx JSON；
+- Nginx 面板 reload / 访问日志已接真实 `docker compose exec nginx`，上传配置仍走 legacy；
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；
 - 新增 `sync_bundle_item`：本地 filesystem / SSH 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，SSH 通过 scp 上传；执行结果写入 runs 与日志；
 - 新增 config.php 预览与生成：将 deployment_settings.config_json 转 PHP 数组字面量并套用模板，纳入 generated 与远程上传；`env.example` / compose / config.php 模板已与 legacy 逐行对齐；
