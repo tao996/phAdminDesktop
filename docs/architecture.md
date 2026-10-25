@@ -318,7 +318,8 @@ SQLite
 - 步骤 run 通过 `deploy_run_id` / `step_key` / `step_title` 关联 `deploy_runs`，任务面板可查看步骤；
 - Deploy 面板已通过 `load_deployment_config` 读取真实 `sync_items` / `deployment_settings`，过滤下拉和同步项摘要使用 DB 数据；
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；
-- bundle / ftp 同步执行器尚未接入；升级仍由 `php admin upgrade` 完成；
+- 新增 `sync_bundle_item`：本地 filesystem 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，执行结果写入 runs 与日志；
+- SSH git / 本地 bundle 已接入；ftp/SFTP 尚未接入；升级仍由 `php admin upgrade` 完成；
 - 下一步：远程 git sync / bundle / ftp。
 
 参见 [roadmap.md](roadmap.md)。

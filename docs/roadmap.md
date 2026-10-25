@@ -161,7 +161,8 @@
 - [x] 多步骤部署编排（legacy upgrade + compose + nginx + restart）
 - [x] sync_items / deployment_settings 读取与部署面板展示
 - [x] 原生 git sync（本地 filesystem / SSH，clone / pull）
+- [x] 本地 bundle sync
 - [x] 同步项级并发锁
-- [ ] bundle / ftp 同步
+- [ ] ftp / SFTP 同步
 - [ ] 配置模板渲染 / Nginx 生成
 - [ ] PHP 回退验收

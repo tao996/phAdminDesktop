@@ -309,6 +309,7 @@ export function OverviewPanel({
 interface DeployPanelProps extends PanelCommonProps {
   onStartDeploy: (restartPhp: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
+  onSyncBundleItem: (itemId: string) => Promise<void>;
 }
 
 export function DeployPanel({
@@ -317,6 +318,7 @@ export function DeployPanel({
   onAction,
   onStartDeploy,
   onSyncItem,
+  onSyncBundleItem,
 }: DeployPanelProps) {
   const [filter, setFilter] = useState<"all" | "method" | "name">("all");
   const [method, setMethod] = useState("git");
@@ -530,7 +532,7 @@ export function DeployPanel({
                     <button
                       type="button"
                       className="mini-button"
-                      title="本地 filesystem：clone 或 pull 此同步项"
+                      title="本地 / SSH：clone 或 pull 此同步项"
                       disabled={syncingId === item.id}
                       onClick={() => {
                         setSyncingId(item.id);
@@ -538,6 +540,20 @@ export function DeployPanel({
                       }}
                     >
                       {syncingId === item.id ? "启动中…" : "同步"}
+                    </button>
+                  )}
+                  {item.method === "bundle" && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      title="本地 filesystem：git bundle 直传"
+                      disabled={syncingId === item.id}
+                      onClick={() => {
+                        setSyncingId(item.id);
+                        void onSyncBundleItem(item.id).finally(() => setSyncingId(null));
+                      }}
+                    >
+                      {syncingId === item.id ? "同步中…" : "同步"}
                     </button>
                   )}
                 </span>

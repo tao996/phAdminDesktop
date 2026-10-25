@@ -227,10 +227,11 @@ Phase 1 已完成：
 - 备份仍为 mock；原生同步/配置渲染待接入；
 - Deploy 面板读取真实 `sync_items` / `deployment_settings` 并展示同步项；
 - 本地 filesystem / SSH 的 git 同步项支持 clone / pull；
+- 本地 bundle 同步项使用 git bundle + clone/fetch/merge；
 - 同步项级锁防止重复执行。
 
 下一步：
 
-- bundle / ftp 同步 / 配置渲染。
+- ftp / SFTP 同步 / 配置渲染。
 
 详见 [roadmap.md](roadmap.md)。

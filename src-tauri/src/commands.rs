@@ -1,6 +1,9 @@
+use std::fs::{self, File};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::OptionalExtension;
 use tauri::{AppHandle, Manager, State};
@@ -10,6 +13,27 @@ use crate::db;
 use crate::legacy;
 use crate::models::{DeploymentConfig, ImportSummary, RunRecord, Workspace};
 use crate::runner;
+
+fn run_git(args: &[String]) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(args)
+        .output()
+        .map_err(|error| format!("启动 git 失败: {error}"))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if output.status.success() {
+        Ok(text)
+    } else {
+        Err(if text.trim().is_empty() {
+            format!("git 退出码 {:?}", output.status.code())
+        } else {
+            text
+        })
+    }
+}
 
 #[tauri::command]
 pub fn load_workspace(state: State<'_, AppState>) -> Result<Workspace, String> {
@@ -218,5 +242,195 @@ pub fn sync_git_item(
             }
             Err(error)
         }
+    }
+}
+
+#[tauri::command]
+pub fn sync_bundle_item(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    deployment_id: String,
+    item_id: String,
+) -> Result<String, String> {
+    let lock_key = format!("{deployment_id}:{item_id}:bundle");
+    {
+        let mut syncs = state
+            .syncs
+            .lock()
+            .map_err(|error| format!("同步锁被占用: {error}"))?;
+        if !syncs.insert(lock_key.clone()) {
+            return Err("该同步项正在执行".to_string());
+        }
+    }
+
+    let (kind, local_path, remote_path, method, branch, path) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        connection
+            .query_row(
+                "SELECT s.kind, p.local_path, d.remote_path, i.method, i.branch, i.path
+                 FROM sync_items i
+                 JOIN deployments d ON d.id = i.deployment_id
+                 JOIN projects p ON p.id = d.project_id
+                 JOIN servers s ON s.id = d.server_id
+                 WHERE i.id = ?1 AND i.deployment_id = ?2",
+                rusqlite::params![&item_id, &deployment_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                    ))
+                },
+            )
+            .map_err(|error| format!("同步项不存在: {error}"))?
+    };
+
+    let result = (|| -> Result<String, String> {
+        if method != "bundle" {
+            return Err(format!("当前同步项不是 bundle，method={method}"));
+        }
+        if kind != "filesystem" {
+            return Err("bundle 同步暂只支持本地 filesystem 服务器".to_string());
+        }
+
+        let source = if path.trim().is_empty() {
+            PathBuf::from(local_path)
+        } else {
+            PathBuf::from(local_path).join(path.trim())
+        };
+        let dest = if path.trim().is_empty() {
+            PathBuf::from(remote_path)
+        } else {
+            PathBuf::from(remote_path).join(path.trim())
+        };
+        if !source.join(".git").exists() {
+            return Err(format!("本地源不是 git 仓库: {}", source.display()));
+        }
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建目标父目录失败: {error}"))?;
+        }
+
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let bundle_path = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| format!("获取数据目录失败: {error}"))?
+            .join("tmp")
+            .join(format!("bundle-{millis}.bundle"));
+        if let Some(parent) = bundle_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建临时目录失败: {error}"))?;
+        }
+
+        let branch = if branch.trim().is_empty() {
+            "main".to_string()
+        } else {
+            branch.trim().to_string()
+        };
+        let mut transcript = String::new();
+        let mut run = |args: Vec<String>| -> Result<(), String> {
+            transcript.push_str(&format!("$ git {}\n", args.join(" ")));
+            let output = run_git(&args)?;
+            transcript.push_str(&output);
+            if !output.ends_with('\n') {
+                transcript.push('\n');
+            }
+            Ok(())
+        };
+
+        let bundle_text = bundle_path.to_string_lossy().to_string();
+        run(vec![
+            "-C".to_string(),
+            source.to_string_lossy().to_string(),
+            "bundle".to_string(),
+            "create".to_string(),
+            bundle_text.clone(),
+            branch.clone(),
+        ])?;
+
+        if dest.join(".git").exists() {
+            run(vec![
+                "-C".to_string(),
+                dest.to_string_lossy().to_string(),
+                "fetch".to_string(),
+                bundle_text,
+                branch.clone(),
+            ])?;
+            run(vec![
+                "-C".to_string(),
+                dest.to_string_lossy().to_string(),
+                "merge".to_string(),
+                "--ff-only".to_string(),
+                "FETCH_HEAD".to_string(),
+            ])?;
+        } else {
+            run(vec![
+                "clone".to_string(),
+                bundle_text,
+                dest.to_string_lossy().to_string(),
+            ])?;
+        }
+
+        let _ = fs::remove_file(&bundle_path);
+        Ok(transcript)
+    })();
+
+    let (status, output, error) = match result {
+        Ok(output) => ("succeeded".to_string(), output, None),
+        Err(error) => ("failed".to_string(), String::new(), Some(error)),
+    };
+    let run_id = format!(
+        "bundle-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0)
+    );
+    let mut log_path: Option<String> = None;
+    if let Ok(log_dir) = app.path().app_data_dir().map(|dir| dir.join("logs")) {
+        let _ = fs::create_dir_all(&log_dir);
+        let path = log_dir.join(format!("{run_id}.log"));
+        if let Ok(mut file) = File::create(&path) {
+            let _ = file.write_all(output.as_bytes());
+            if let Some(error) = &error {
+                let _ = writeln!(file, "[error] {error}");
+            }
+            log_path = Some(path.to_string_lossy().to_string());
+        }
+    }
+
+    if let Ok(connection) = app.state::<AppState>().db.lock() {
+        let _ = connection.execute(
+            "INSERT INTO runs
+                (id, deployment_id, command, args_json, status, exit_code,
+                 started_at, ended_at, log_path, error_summary)
+             VALUES (?1, ?2, 'git bundle', ?3, ?4, ?5, datetime('now'), datetime('now'), ?6, ?7)",
+            rusqlite::params![
+                &run_id,
+                &deployment_id,
+                serde_json::json!(["bundle", item_id]).to_string(),
+                &status,
+                if status == "succeeded" { 0 } else { 1 },
+                log_path.as_deref(),
+                error.as_deref()
+            ],
+        );
+    }
+
+    if let Ok(mut syncs) = app.state::<AppState>().syncs.lock() {
+        syncs.remove(&lock_key);
+    }
+
+    match error {
+        Some(error) => Err(format!("{error}\n{output}")),
+        None => Ok(output),
     }
 }

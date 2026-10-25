@@ -197,3 +197,10 @@ export async function syncGitItem(
 ): Promise<string> {
   return invoke<string>("sync_git_item", { deploymentId, itemId });
 }
+
+export async function syncBundleItem(
+  deploymentId: string,
+  itemId: string,
+): Promise<string> {
+  return invoke<string>("sync_bundle_item", { deploymentId, itemId });
+}

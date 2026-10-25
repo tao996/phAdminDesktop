@@ -33,6 +33,7 @@ import {
   loadWorkspace,
   runCommand,
   startDeploy,
+  syncBundleItem,
   syncGitItem,
   type DeployFinished,
   type DeployStepEvent,
@@ -406,6 +407,29 @@ function App() {
     }
   };
 
+  const handleSyncBundleItem = async (itemId: string): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction("git bundle", "同步代码");
+      return;
+    }
+
+    const projectId = activeProject.id;
+    try {
+      const output = await syncBundleItem(projectId, itemId);
+      output
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .forEach((line) => appendLine(projectId, "info", line));
+      setRunsVersion((value) => value + 1);
+      setToast({ id: Date.now(), message: "bundle 同步完成" });
+    } catch (error) {
+      appendLine(projectId, "error", `bundle 同步失败：${String(error)}`);
+      setRunsVersion((value) => value + 1);
+      setToast({ id: Date.now(), message: "bundle 同步失败" });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -523,6 +547,7 @@ function App() {
             onExecuteCommand={handleExecuteCommand}
             onStartDeploy={handleStartDeploy}
             onSyncItem={handleSyncItem}
+            onSyncBundleItem={handleSyncBundleItem}
             refreshVersion={runsVersion}
           />
 

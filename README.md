@@ -2,7 +2,7 @@
 
 Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + TypeScript + SQLite 构建。
 
-> 当前状态：静态 UI + SQLite 只读/导入 + 任务执行/历史/日志 + 真实容器状态与操作 + 白名单终端 + 多步骤部署编排 + 本地/SSH git sync_items（legacy upgrade / compose / nginx / restart）已实现；bundle/ftp 同步与配置渲染尚未接入。
+> 当前状态：静态 UI + SQLite 只读/导入 + 任务执行/历史/日志 + 真实容器状态与操作 + 白名单终端 + 多步骤部署编排 + 本地/SSH git 与本地 bundle 同步（legacy upgrade / compose / nginx / restart）已实现；ftp/SFTP 与配置渲染尚未接入。
 
 ![项目概览](docs/screenshots/overview.png)
 
