@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ProjectTabs } from "./components/ProjectTabs";
 import { Workspace } from "./components/Workspace";
 import { TerminalPanel } from "./components/TerminalPanel";
+import { RunsModal } from "./components/RunsModal";
 import {
   AddProjectModal,
   CommandPalette,
@@ -85,6 +86,8 @@ function App() {
   const [showAdd, setShowAdd] = useState(boot.dialog === "add");
   const [showPalette, setShowPalette] = useState(boot.dialog === "command");
   const [showSettings, setShowSettings] = useState(boot.dialog === "settings");
+  const [showRuns, setShowRuns] = useState(false);
+  const [runsVersion, setRunsVersion] = useState(0);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
 
   const server = servers.find((item) => item.id === serverId) ?? servers[0];
@@ -215,6 +218,7 @@ function App() {
       }),
       listen<RunFinished>("run-finished", (event) => {
         const payload = event.payload;
+        setRunsVersion((value) => value + 1);
         if (payload.status === "succeeded") {
           appendLine(payload.deploymentId, "success", "✔ 任务完成（exit 0）");
         } else if (payload.status === "canceled") {
@@ -424,6 +428,7 @@ function App() {
                 setTerminals((current) => ({ ...current, [activeProject.id]: [] }))
               }
               onCommand={handleCommand}
+              onOpenRuns={() => setShowRuns(true)}
             />
           )}
         </main>
@@ -453,6 +458,15 @@ function App() {
         onClose={() => setShowPalette(false)}
         onRun={runAction}
       />
+
+      {showRuns && activeProject && (
+        <RunsModal
+          project={activeProject}
+          version={runsVersion}
+          onClose={() => setShowRuns(false)}
+          onNotify={(message) => setToast({ id: Date.now(), message })}
+        />
+      )}
 
       {showSettings && (
         <SettingsModal

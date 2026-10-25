@@ -58,6 +58,18 @@ export interface RunFinished {
   status: "succeeded" | "failed" | "canceled" | "running";
 }
 
+export interface RunRecord {
+  id: string;
+  deploymentId: string;
+  command: string;
+  args: string[];
+  status: "queued" | "running" | "succeeded" | "failed" | "canceled";
+  exitCode: number | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  errorSummary: string | null;
+}
+
 export function canUseTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -80,4 +92,11 @@ export async function runCommand(
 
 export async function cancelRun(runId: string): Promise<void> {
   return invoke<void>("cancel_run", { runId });
+}
+
+export async function listRuns(
+  deploymentId: string,
+  limit = 50,
+): Promise<RunRecord[]> {
+  return invoke<RunRecord[]>("list_runs", { deploymentId, limit });
 }

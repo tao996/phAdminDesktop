@@ -58,3 +58,17 @@ pub struct ImportSummary {
     pub deployments: usize,
     pub sync_items: usize,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunRecord {
+    pub id: String,
+    pub deployment_id: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub status: String,
+    pub exit_code: Option<i32>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub error_summary: Option<String>,
+}

@@ -150,6 +150,7 @@
 - [x] legacy `config:export` 导入
 - [x] sync_items / runs 表（schema + 导入）
 - [x] 基础任务执行（本地/ssh + stdout/stderr + runs）
-- [ ] 终端交互（任意命令、取消按钮、任务面板）
+- [x] 任务历史面板 / 取消按钮
+- [ ] 任意终端命令（白名单扩展）
 - [ ] 部署核心
 - [ ] PHP 回退验收

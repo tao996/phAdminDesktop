@@ -216,13 +216,13 @@ Phase 1 已完成：
 - legacy `config:export` JSON 导入（设置 → 导入 legacy 配置）；
 - `domains/env_vars/sync_items/deployment_settings/runs` 表；
 - `run_command` 基础执行：本地 filesystem / 系统 `ssh`，stdout/stderr 事件 + `runs` 落库；
-- `cancel_run` 后端能力；
+- `list_runs` 任务历史 + `cancel_run`；终端「任务」面板；
 - 容器、活动、备份仍为 mock。
 
 下一步：
 
-- 任务面板、取消按钮、任意终端命令；
-- 用真实数据替换容器/活动/备份 mock；
+- 容器状态解析（`docker compose ps --format json`）；
+- 任意终端命令；
 - 部署 / 升级编排。
 
 详见 [roadmap.md](roadmap.md)。

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, params};
 
-use crate::models::{Deployment, Project, Server, Workspace};
+use crate::models::{Deployment, Project, RunRecord, Server, Workspace};
 
 const SEED_JSON: &str = include_str!("../seed.json");
 
@@ -298,6 +298,37 @@ pub fn load_workspace(connection: &Connection) -> rusqlite::Result<Workspace> {
     })
 }
 
+pub fn list_runs(
+    connection: &Connection,
+    deployment_id: &str,
+    limit: i64,
+) -> rusqlite::Result<Vec<RunRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT id, deployment_id, command, args_json, status, exit_code,
+                started_at, ended_at, error_summary
+         FROM runs
+         WHERE deployment_id = ?1
+         ORDER BY started_at DESC, id DESC
+         LIMIT ?2",
+    )?;
+    let rows = statement.query_map(params![deployment_id, limit], |row| {
+        let args_json: String = row.get(3)?;
+        let args = serde_json::from_str(&args_json).unwrap_or_default();
+        Ok(RunRecord {
+            id: row.get(0)?,
+            deployment_id: row.get(1)?,
+            command: row.get(2)?,
+            args,
+            status: row.get(4)?,
+            exit_code: row.get(5)?,
+            started_at: row.get(6)?,
+            ended_at: row.get(7)?,
+            error_summary: row.get(8)?,
+        })
+    })?;
+    rows.collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,5 +357,35 @@ mod tests {
         seed_if_empty(&mut connection).expect("seed again");
         let again = load_workspace(&connection).expect("load again");
         assert_eq!(again.deployments.len(), 5);
+    }
+
+    #[test]
+    fn lists_runs_newest_first() {
+        let mut connection = Connection::open_in_memory().expect("open in-memory db");
+        migrate(&connection).expect("migrate");
+        seed_if_empty(&mut connection).expect("seed");
+
+        connection
+            .execute(
+                "INSERT INTO runs (id, deployment_id, command, args_json, status, exit_code, started_at)
+                 VALUES ('run-1', 'boyu', 'docker', '[\"compose\",\"ps\"]', 'succeeded', 0, '2026-01-01 00:00:00')",
+                [],
+            )
+            .expect("insert run 1");
+        connection
+            .execute(
+                "INSERT INTO runs (id, deployment_id, command, args_json, status, started_at)
+                 VALUES ('run-2', 'boyu', 'whoami', '[]', 'running', '2026-01-02 00:00:00')",
+                [],
+            )
+            .expect("insert run 2");
+
+        let runs = list_runs(&connection, "boyu", 50).expect("list runs");
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].id, "run-2");
+        assert_eq!(runs[0].status, "running");
+        assert_eq!(runs[1].id, "run-1");
+        assert_eq!(runs[1].args, vec!["compose", "ps"]);
+        assert_eq!(runs[1].exit_code, Some(0));
     }
 }

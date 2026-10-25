@@ -9,6 +9,7 @@ interface TerminalPanelProps {
   onToggle: () => void;
   onClear: () => void;
   onCommand: (command: string) => void;
+  onOpenRuns: () => void;
 }
 
 const typeLabel: Record<TerminalLine["type"], string> = {
@@ -26,6 +27,7 @@ export function TerminalPanel({
   onToggle,
   onClear,
   onCommand,
+  onOpenRuns,
 }: TerminalPanelProps) {
   const [value, setValue] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -57,6 +59,10 @@ export function TerminalPanel({
             <span className="status-dot online" />
             已连接
           </span>
+          <button type="button" className="mini-button" onClick={onOpenRuns}>
+            <Icon name="clock" size={12} />
+            任务
+          </button>
           <button type="button" className="mini-button" onClick={copyLog}>
             <Icon name="copy" size={12} />
             复制
