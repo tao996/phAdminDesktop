@@ -1,7 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 use rusqlite::OptionalExtension;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::AppState;
 use crate::db;
@@ -85,76 +87,136 @@ pub fn sync_git_item(
     deployment_id: String,
     item_id: String,
 ) -> Result<String, String> {
-    let (kind, remote_path, method, repo, branch, path) = {
-        let connection = state
-            .db
+    let lock_key = format!("{deployment_id}:{item_id}");
+    {
+        let mut syncs = state
+            .syncs
             .lock()
-            .map_err(|error| format!("数据库连接被占用: {error}"))?;
-        connection
-            .query_row(
-                "SELECT s.kind, d.remote_path, i.method, i.repo, i.branch, i.path
-                 FROM sync_items i
-                 JOIN deployments d ON d.id = i.deployment_id
-                 JOIN servers s ON s.id = d.server_id
-                 WHERE i.id = ?1 AND i.deployment_id = ?2",
-                rusqlite::params![&item_id, &deployment_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                    ))
-                },
+            .map_err(|error| format!("同步锁被占用: {error}"))?;
+        if !syncs.insert(lock_key.clone()) {
+            return Err("该同步项正在执行".to_string());
+        }
+    }
+
+    let result = (|| -> Result<String, String> {
+        let (method, repo, branch, path) = {
+            let connection = state
+                .db
+                .lock()
+                .map_err(|error| format!("数据库连接被占用: {error}"))?;
+            connection
+                .query_row(
+                    "SELECT method, repo, branch, path
+                     FROM sync_items
+                     WHERE id = ?1 AND deployment_id = ?2",
+                    rusqlite::params![&item_id, &deployment_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    },
+                )
+                .map_err(|error| format!("同步项不存在: {error}"))?
+        };
+
+        if method != "git" {
+            return Err(format!("暂只支持 git 同步项，当前 method={method}"));
+        }
+
+        let target = {
+            let connection = state
+                .db
+                .lock()
+                .map_err(|error| format!("数据库连接被占用: {error}"))?;
+            runner::load_target(&connection, &deployment_id)?
+        };
+
+        let base = target.remote_path.trim_end_matches(['/', '\\']);
+        let target_text = if path.trim().is_empty() {
+            base.to_string()
+        } else if target.kind == "filesystem" {
+            PathBuf::from(base)
+                .join(path.trim())
+                .to_string_lossy()
+                .to_string()
+        } else {
+            format!(
+                "{}/{}",
+                base.trim_end_matches('/'),
+                path.trim().trim_start_matches('/')
             )
-            .map_err(|error| format!("同步项不存在: {error}"))?
-    };
+        };
+        let git_dir = format!("{}/.git", target_text.trim_end_matches('/'));
+        let repo_exists = runner::target_path_exists(&target, &git_dir)?;
 
-    if method != "git" {
-        return Err(format!("暂只支持 git 同步项，当前 method={method}"));
-    }
-    if kind != "filesystem" {
-        return Err("原生 git 同步暂只支持本地 filesystem 服务器".to_string());
-    }
+        let args = if repo_exists {
+            vec![
+                "-C".to_string(),
+                target_text,
+                "pull".to_string(),
+                "--ff-only".to_string(),
+            ]
+        } else {
+            if repo.trim().is_empty() {
+                return Err("同步项没有配置 repo，无法 clone".to_string());
+            }
+            let parent = Path::new(&target_text)
+                .parent()
+                .map(|value| value.to_string_lossy().to_string())
+                .ok_or_else(|| "无法确定同步项目标父目录".to_string())?;
+            runner::ensure_target_dir(&target, &parent)?;
+            vec![
+                "clone".to_string(),
+                "--depth=1".to_string(),
+                "-b".to_string(),
+                if branch.trim().is_empty() {
+                    "main".to_string()
+                } else {
+                    branch.trim().to_string()
+                },
+                repo.trim().to_string(),
+                target_text,
+            ]
+        };
 
-    let base = PathBuf::from(remote_path);
-    let target = if path.trim().is_empty() {
-        base.clone()
-    } else {
-        base.join(path.trim())
-    };
-    let target_text = target.to_string_lossy().to_string();
+        runner::run_command(app.clone(), state, deployment_id, "git".to_string(), args)
+    })();
 
-    let args = if target.join(".git").exists() {
-        vec![
-            "-C".to_string(),
-            target_text,
-            "pull".to_string(),
-            "--ff-only".to_string(),
-        ]
-    } else {
-        if repo.trim().is_empty() {
-            return Err("同步项没有配置 repo，无法 clone".to_string());
+    match result {
+        Ok(run_id) => {
+            let cleanup_app = app.clone();
+            let cleanup_run_id = run_id.clone();
+            thread::spawn(move || {
+                loop {
+                    thread::sleep(Duration::from_millis(200));
+                    let state = cleanup_app.state::<AppState>();
+                    let status = state.db.lock().ok().and_then(|connection| {
+                        connection
+                            .query_row(
+                                "SELECT status FROM runs WHERE id = ?1",
+                                [&cleanup_run_id],
+                                |row| row.get::<_, String>(0),
+                            )
+                            .ok()
+                    });
+                    if status.as_deref() != Some("running") {
+                        if let Ok(mut syncs) = state.syncs.lock() {
+                            syncs.remove(&lock_key);
+                        }
+                        break;
+                    }
+                }
+            });
+            Ok(run_id)
         }
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| format!("创建同步目录失败: {error}"))?;
+        Err(error) => {
+            if let Ok(mut syncs) = app.state::<AppState>().syncs.lock() {
+                syncs.remove(&lock_key);
+            }
+            Err(error)
         }
-        vec![
-            "clone".to_string(),
-            "--depth=1".to_string(),
-            "-b".to_string(),
-            if branch.trim().is_empty() {
-                "main".to_string()
-            } else {
-                branch.trim().to_string()
-            },
-            repo.trim().to_string(),
-            target_text,
-        ]
-    };
-
-    runner::run_command(app, state, deployment_id, "git".to_string(), args)
+    }
 }

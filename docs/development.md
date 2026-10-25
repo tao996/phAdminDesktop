@@ -226,10 +226,11 @@ Phase 1 已完成：
 - 任一步失败中止；同一 deployment 禁止并发部署；步骤 run 关联 `deploy_runs`；
 - 备份仍为 mock；原生同步/配置渲染待接入；
 - Deploy 面板读取真实 `sync_items` / `deployment_settings` 并展示同步项；
-- 本地 filesystem 的 git 同步项支持 clone / pull。
+- 本地 filesystem / SSH 的 git 同步项支持 clone / pull；
+- 同步项级锁防止重复执行。
 
 下一步：
 
-- 远程 git / bundle / ftp 同步 / 配置渲染。
+- bundle / ftp 同步 / 配置渲染。
 
 详见 [roadmap.md](roadmap.md)。

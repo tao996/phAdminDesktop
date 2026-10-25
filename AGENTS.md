@@ -92,11 +92,11 @@ Phase 1（SQLite + 只读/导入）已完成：
 - Deploy「开始升级」调用 `start_deploy`：升级 → compose up → Nginx reload → 可选重启 PHP；失败中止，同 deployment 防并发；
 - 步骤 run 关联 `deploy_runs`，任务面板显示步骤；
 - Deploy 面板读取真实 `sync_items` / `deployment_settings`；
-- 本地 filesystem git 同步项支持 clone / pull（`sync_git_item`）；远程/bundle/ftp 未接入。
+- 本地 filesystem / SSH git 同步项支持 clone / pull（`sync_git_item`）；同步项级锁；bundle/ftp 未接入。
 
 下一步：
 
-- 远程 git / bundle / ftp 同步 / 配置渲染。
+- bundle / ftp 同步 / 配置渲染。
 
 不要提前实现部署/SSH/Docker 写操作。先把数据层和只读链路打通。
 

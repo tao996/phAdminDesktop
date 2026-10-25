@@ -16,6 +16,7 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     pub runs: Mutex<HashMap<String, Arc<Mutex<Child>>>>,
     pub canceled: Mutex<HashSet<String>>,
+    pub syncs: Mutex<HashSet<String>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -30,6 +31,7 @@ pub fn run() {
                 db: Mutex::new(connection),
                 runs: Mutex::new(HashMap::new()),
                 canceled: Mutex::new(HashSet::new()),
+                syncs: Mutex::new(HashSet::new()),
             });
             Ok(())
         })

@@ -160,7 +160,8 @@
 - [x] 升级成功后串行重启 PHP
 - [x] 多步骤部署编排（legacy upgrade + compose + nginx + restart）
 - [x] sync_items / deployment_settings 读取与部署面板展示
-- [x] 原生 git sync（本地 filesystem，clone / pull）
-- [ ] 远程 git / bundle / ftp 同步
+- [x] 原生 git sync（本地 filesystem / SSH，clone / pull）
+- [x] 同步项级并发锁
+- [ ] bundle / ftp 同步
 - [ ] 配置模板渲染 / Nginx 生成
 - [ ] PHP 回退验收

@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -50,13 +50,13 @@ pub struct ContainerInfo {
 }
 
 #[derive(Debug)]
-struct Target {
-    remote_path: String,
-    kind: String,
-    host: String,
-    port: i64,
-    username: String,
-    key_path: String,
+pub(crate) struct Target {
+    pub(crate) remote_path: String,
+    pub(crate) kind: String,
+    pub(crate) host: String,
+    pub(crate) port: i64,
+    pub(crate) username: String,
+    pub(crate) key_path: String,
 }
 
 fn next_run_id() -> String {
@@ -90,7 +90,10 @@ fn create_run_log(app: &AppHandle, run_id: &str) -> Result<(String, Arc<Mutex<Fi
     ))
 }
 
-fn load_target(connection: &rusqlite::Connection, deployment_id: &str) -> Result<Target, String> {
+pub(crate) fn load_target(
+    connection: &rusqlite::Connection,
+    deployment_id: &str,
+) -> Result<Target, String> {
     connection
         .query_row(
             "SELECT d.remote_path, s.kind, s.host, s.port, s.username, s.key_path
@@ -161,6 +164,41 @@ fn build_command(target: &Target, program: &str, args: &[String]) -> Result<Comm
         .arg("-lc")
         .arg(remote);
     Ok(command)
+}
+
+pub(crate) fn target_path_exists(target: &Target, path: &str) -> Result<bool, String> {
+    if target.kind == "filesystem" {
+        return Ok(Path::new(path).exists());
+    }
+
+    let script = format!("test -e {} && echo yes || echo no", shell_quote(path));
+    let mut command = build_command(target, "sh", &["-lc".to_string(), script])?;
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("检查远程路径失败: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("检查远程路径失败: {}", stderr.trim()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim() == "yes")
+}
+
+pub(crate) fn ensure_target_dir(target: &Target, path: &str) -> Result<(), String> {
+    if target.kind == "filesystem" {
+        return std::fs::create_dir_all(path).map_err(|error| format!("创建目录失败: {error}"));
+    }
+
+    let mut command = build_command(target, "mkdir", &["-p".to_string(), path.to_string()])?;
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("创建远程目录失败: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("创建远程目录失败: {}", stderr.trim()));
+    }
+    Ok(())
 }
 
 fn string_field(value: &Value, key: &str) -> String {
@@ -544,6 +582,20 @@ mod tests {
             command.get_current_dir().and_then(|path| path.to_str()),
             Some("D:/demo/project")
         );
+    }
+
+    #[test]
+    fn checks_local_target_paths() {
+        let target = Target {
+            remote_path: ".".to_string(),
+            kind: "filesystem".to_string(),
+            host: String::new(),
+            port: 22,
+            username: String::new(),
+            key_path: String::new(),
+        };
+        assert!(target_path_exists(&target, "Cargo.toml").expect("existing path"));
+        assert!(!target_path_exists(&target, "missing-path-for-test").expect("missing path"));
     }
 
     #[test]
