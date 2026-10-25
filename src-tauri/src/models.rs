@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,4 +75,35 @@ pub struct RunRecord {
     pub deploy_run_id: Option<String>,
     pub step_key: Option<String>,
     pub step_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncItem {
+    pub id: String,
+    pub deployment_id: String,
+    pub sort: i64,
+    pub method: String,
+    pub name: String,
+    pub path: String,
+    pub repo: String,
+    pub branch: String,
+    pub excludes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentSettings {
+    pub config: Value,
+    pub hooks: Value,
+    pub docker_images: Value,
+    pub router: Value,
+    pub nginx: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentConfig {
+    pub sync_items: Vec<SyncItem>,
+    pub settings: Option<DeploymentSettings>,
 }

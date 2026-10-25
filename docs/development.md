@@ -224,10 +224,11 @@ Phase 1 已完成：
 - 终端支持白名单命令（argv 解析，不经过 shell）；
 - Deploy 面板「开始升级」调用 `start_deploy`，按步骤执行升级 → compose up → Nginx reload → 可选重启 PHP；
 - 任一步失败中止；同一 deployment 禁止并发部署；步骤 run 关联 `deploy_runs`；
-- 备份仍为 mock；原生同步/配置渲染待接入。
+- 备份仍为 mock；原生同步/配置渲染待接入；
+- Deploy 面板读取真实 `sync_items` / `deployment_settings` 并展示同步项。
 
 下一步：
 
-- 原生 sync_items / 配置渲染 / Nginx 生成。
+- 原生 git sync_items 执行器 / 配置渲染。
 
 详见 [roadmap.md](roadmap.md)。

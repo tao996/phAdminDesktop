@@ -159,5 +159,7 @@
 - [x] 升级命令执行（单命令）
 - [x] 升级成功后串行重启 PHP
 - [x] 多步骤部署编排（legacy upgrade + compose + nginx + restart）
-- [ ] 原生 sync_items / 配置渲染 / Nginx 生成
+- [x] sync_items / deployment_settings 读取与部署面板展示
+- [ ] 原生 sync_items 执行器
+- [ ] 配置模板渲染 / Nginx 生成
 - [ ] PHP 回退验收

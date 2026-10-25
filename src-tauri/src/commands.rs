@@ -4,7 +4,7 @@ use tauri::State;
 use crate::AppState;
 use crate::db;
 use crate::legacy;
-use crate::models::{ImportSummary, RunRecord, Workspace};
+use crate::models::{DeploymentConfig, ImportSummary, RunRecord, Workspace};
 
 #[tauri::command]
 pub fn load_workspace(state: State<'_, AppState>) -> Result<Workspace, String> {
@@ -60,4 +60,17 @@ pub fn read_run_log(state: State<'_, AppState>, run_id: String) -> Result<String
 
     let path = log_path.ok_or_else(|| "该任务没有日志文件".to_string())?;
     std::fs::read_to_string(&path).map_err(|error| format!("读取日志文件失败: {error}"))
+}
+
+#[tauri::command]
+pub fn load_deployment_config(
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<DeploymentConfig, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    db::load_deployment_config(&connection, &deployment_id)
+        .map_err(|error| format!("读取部署配置失败: {error}"))
 }

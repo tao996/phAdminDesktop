@@ -316,7 +316,8 @@ SQLite
 - Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；备份仍为 mock；
 - Deploy 面板「开始升级」已接入 `start_deploy` 编排：升级 → compose up → Nginx reload → 可选重启 PHP；任一步失败中止；同一 deployment 禁止并发部署；
 - 步骤 run 通过 `deploy_run_id` / `step_key` / `step_title` 关联 `deploy_runs`，任务面板可查看步骤；
-- 同步过滤 / 配置生成 / Nginx 更新仍由 legacy `php admin upgrade` 完成，尚未拆成原生步骤；
-- 下一步：原生 sync_items / 配置渲染 / Nginx 生成。
+- Deploy 面板已通过 `load_deployment_config` 读取真实 `sync_items` / `deployment_settings`，过滤下拉和同步项摘要使用 DB 数据；
+- 原生 sync_items 执行器尚未接入，升级仍由 `php admin upgrade` 完成；
+- 下一步：git sync 执行器 / 配置模板渲染。
 
 参见 [roadmap.md](roadmap.md)。

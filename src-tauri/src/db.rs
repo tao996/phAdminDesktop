@@ -1,9 +1,12 @@
 use std::error::Error;
 use std::path::Path;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::models::{Deployment, Project, RunRecord, Server, Workspace};
+use crate::models::{
+    Deployment, DeploymentConfig, DeploymentSettings, Project, RunRecord, Server, SyncItem,
+    Workspace,
+};
 
 const SEED_JSON: &str = include_str!("../seed.json");
 
@@ -356,6 +359,60 @@ pub fn list_runs(
     rows.collect()
 }
 
+pub fn load_deployment_config(
+    connection: &Connection,
+    deployment_id: &str,
+) -> rusqlite::Result<DeploymentConfig> {
+    let sync_items = {
+        let mut statement = connection.prepare(
+            "SELECT id, deployment_id, sort, method, name, path, repo, branch, excludes_json
+             FROM sync_items
+             WHERE deployment_id = ?1
+             ORDER BY sort, id",
+        )?;
+        let rows = statement.query_map([deployment_id], |row| {
+            let excludes_json: String = row.get(8)?;
+            let excludes = serde_json::from_str(&excludes_json).unwrap_or_default();
+            Ok(SyncItem {
+                id: row.get(0)?,
+                deployment_id: row.get(1)?,
+                sort: row.get(2)?,
+                method: row.get(3)?,
+                name: row.get(4)?,
+                path: row.get(5)?,
+                repo: row.get(6)?,
+                branch: row.get(7)?,
+                excludes,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    let settings = connection
+        .query_row(
+            "SELECT config_json, hooks_json, docker_images_json, router_json, nginx_json
+             FROM deployment_settings
+             WHERE deployment_id = ?1",
+            [deployment_id],
+            |row| {
+                Ok(DeploymentSettings {
+                    config: serde_json::from_str(&row.get::<_, String>(0)?).unwrap_or_default(),
+                    hooks: serde_json::from_str(&row.get::<_, String>(1)?).unwrap_or_default(),
+                    docker_images: serde_json::from_str(&row.get::<_, String>(2)?)
+                        .unwrap_or_default(),
+                    router: serde_json::from_str(&row.get::<_, String>(3)?).unwrap_or_default(),
+                    nginx: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or_default(),
+                })
+            },
+        )
+        .optional()?;
+
+    Ok(DeploymentConfig {
+        sync_items,
+        settings,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,5 +471,38 @@ mod tests {
         assert_eq!(runs[1].id, "run-1");
         assert_eq!(runs[1].args, vec!["compose", "ps"]);
         assert_eq!(runs[1].exit_code, Some(0));
+    }
+
+    #[test]
+    fn loads_sync_items_and_settings() {
+        let mut connection = Connection::open_in_memory().expect("open in-memory db");
+        migrate(&connection).expect("migrate");
+        seed_if_empty(&mut connection).expect("seed");
+
+        connection
+            .execute(
+                "INSERT INTO sync_items
+                    (id, deployment_id, sort, method, name, path, repo, branch, excludes_json)
+                 VALUES ('sync-1', 'boyu', 0, 'git', '主仓库', 'src/App',
+                         'https://example.com/app.git', 'main', '[\"var/cache\"]')",
+                [],
+            )
+            .expect("insert sync item");
+        connection
+            .execute(
+                "INSERT INTO deployment_settings
+                    (deployment_id, config_json, hooks_json, docker_images_json, router_json, nginx_json)
+                 VALUES ('boyu', '{\"app\":{\"debug\":false}}', '{}', '{}', '{}', '{\"ssl\":true}')",
+                [],
+            )
+            .expect("insert settings");
+
+        let config = load_deployment_config(&connection, "boyu").expect("load config");
+        assert_eq!(config.sync_items.len(), 1);
+        assert_eq!(config.sync_items[0].method, "git");
+        assert_eq!(config.sync_items[0].excludes, vec!["var/cache"]);
+        let settings = config.settings.expect("settings");
+        assert_eq!(settings.config["app"]["debug"], false);
+        assert_eq!(settings.nginx["ssl"], true);
     }
 }

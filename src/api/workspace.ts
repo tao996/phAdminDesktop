@@ -102,6 +102,31 @@ export interface DeployFinished {
   error: string | null;
 }
 
+export interface SyncItem {
+  id: string;
+  deploymentId: string;
+  sort: number;
+  method: string;
+  name: string;
+  path: string;
+  repo: string;
+  branch: string;
+  excludes: string[];
+}
+
+export interface DeploymentSettings {
+  config: unknown;
+  hooks: unknown;
+  dockerImages: unknown;
+  router: unknown;
+  nginx: unknown;
+}
+
+export interface DeploymentConfig {
+  syncItems: SyncItem[];
+  settings: DeploymentSettings | null;
+}
+
 export interface ContainerInfo {
   service: string;
   name: string;
@@ -158,4 +183,10 @@ export async function startDeploy(
   restartPhp: boolean,
 ): Promise<DeployStart> {
   return invoke<DeployStart>("start_deploy", { deploymentId, restartPhp });
+}
+
+export async function loadDeploymentConfig(
+  deploymentId: string,
+): Promise<DeploymentConfig> {
+  return invoke<DeploymentConfig>("load_deployment_config", { deploymentId });
 }

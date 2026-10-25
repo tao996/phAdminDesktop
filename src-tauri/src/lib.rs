@@ -35,6 +35,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_workspace,
+            commands::load_deployment_config,
             commands::import_legacy_config,
             commands::list_runs,
             commands::read_run_log,

@@ -4,7 +4,9 @@ import {
   canUseTauri,
   getContainers,
   listRuns,
+  loadDeploymentConfig,
   type RunRecord,
+  type SyncItem,
 } from "../api/workspace";
 import { Icon } from "./Icon";
 
@@ -320,6 +322,36 @@ export function DeployPanel({
   const [full, setFull] = useState(false);
   const [updateConfig, setUpdateConfig] = useState(false);
   const [restart, setRestart] = useState(true);
+  const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    let cancelled = false;
+    setConfigError(null);
+
+    void loadDeploymentConfig(project.id)
+      .then((config) => {
+        if (cancelled) return;
+        setSyncItems(config.syncItems);
+        if (config.syncItems.length > 0) {
+          const first = config.syncItems[0];
+          if (first.method) setMethod(first.method);
+          setEntry(first.name || first.path || "主仓库");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setConfigError(error instanceof Error ? error.message : String(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id]);
+
+  const methods = Array.from(new Set(syncItems.map((item) => item.method).filter(Boolean)));
 
   const filterPart =
     filter === "method" ? ` method=${method}` : filter === "name" ? ` name=${entry}` : "";
@@ -384,9 +416,18 @@ export function DeployPanel({
             <label className="field">
               <span>同步方式</span>
               <select className="form-select" value={method} onChange={(event) => setMethod(event.target.value)}>
-                <option value="git">git — 远程 clone/pull</option>
-                <option value="bundle">bundle — 本地打包直传</option>
-                <option value="ftp">ftp — SFTP 增量上传</option>
+                {(methods.length > 0 ? methods : ["git", "bundle", "ftp"]).map((value) => (
+                  <option value={value} key={value}>
+                    {value}
+                    {value === "git"
+                      ? " — 远程 clone/pull"
+                      : value === "bundle"
+                        ? " — 本地打包直传"
+                        : value === "ftp"
+                          ? " — SFTP 增量上传"
+                          : ""}
+                  </option>
+                ))}
               </select>
             </label>
           )}
@@ -395,9 +436,20 @@ export function DeployPanel({
             <label className="field">
               <span>条目名称</span>
               <select className="form-select" value={entry} onChange={(event) => setEntry(event.target.value)}>
-                <option>主仓库</option>
-                <option>src/App/Projects/boyu</option>
-                <option>src/App/Modules/demo</option>
+                {syncItems.length > 0 ? (
+                  syncItems.map((item) => (
+                    <option value={item.name || item.path || item.id} key={item.id}>
+                      {item.name || item.path || item.id}
+                      {item.path && item.name ? ` — ${item.path}` : ""}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option>主仓库</option>
+                    <option>src/App/Projects/boyu</option>
+                    <option>src/App/Modules/demo</option>
+                  </>
+                )}
               </select>
             </label>
           )}
@@ -457,6 +509,24 @@ export function DeployPanel({
               开始升级
             </button>
           </div>
+
+          {configError && (
+            <div className="container-error">
+              <Icon name="alert" size={13} />
+              <span>{configError}</span>
+            </div>
+          )}
+          {syncItems.length > 0 && (
+            <div className="sync-summary">
+              <span className="muted-caption">同步项 {syncItems.length}</span>
+              {syncItems.map((item) => (
+                <span className="sync-item" key={item.id}>
+                  <span className="tag">{item.method}</span>
+                  {item.name || item.path || item.id}
+                </span>
+              ))}
+            </div>
+          )}
         </section>
 
         <aside className="card command-card">
