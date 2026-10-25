@@ -43,6 +43,7 @@ pub fn run() {
             commands::sync_bundle_item,
             commands::sync_ftp_item,
             render::render_config_preview,
+            render::render_nginx_preview,
             commands::import_legacy_config,
             commands::list_runs,
             commands::read_run_log,

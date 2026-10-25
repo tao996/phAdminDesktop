@@ -166,6 +166,6 @@
 - [x] 同步项级并发锁
 - [x] 部署配置只读预览（sync items + JSON）
 - [x] ftp / SFTP 基础同步（本地复制 / scp -r）
-- [x] `.env` 渲染预览
-- [ ] 配置写入 / docker-compose / Nginx 生成
+- [x] `.env` / Nginx 渲染预览
+- [ ] 配置写入 / docker-compose 生成
 - [ ] PHP 回退验收

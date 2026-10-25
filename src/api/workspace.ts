@@ -215,3 +215,7 @@ export async function syncFtpItem(
 export async function renderConfigPreview(deploymentId: string): Promise<string> {
   return invoke<string>("render_config_preview", { deploymentId });
 }
+
+export async function renderNginxPreview(deploymentId: string): Promise<string> {
+  return invoke<string>("render_nginx_preview", { deploymentId });
+}

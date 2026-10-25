@@ -4,6 +4,7 @@ import {
   canUseTauri,
   loadDeploymentConfig,
   renderConfigPreview,
+  renderNginxPreview,
   type DeploymentConfig,
 } from "../api/workspace";
 import { Icon } from "./Icon";
@@ -37,6 +38,7 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [renderedEnv, setRenderedEnv] = useState<string | null>(null);
+  const [renderedNginx, setRenderedNginx] = useState<string | null>(null);
 
   useEffect(() => {
     if (!canUseTauri()) return;
@@ -47,6 +49,13 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
       })
       .catch(() => {
         if (!cancelled) setRenderedEnv(null);
+      });
+    void renderNginxPreview(project.id)
+      .then((value) => {
+        if (!cancelled) setRenderedNginx(value);
+      })
+      .catch(() => {
+        if (!cancelled) setRenderedNginx(null);
       });
     return () => {
       cancelled = true;
@@ -138,10 +147,21 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                 >
                   rendered .env
                 </button>
+                <button
+                  type="button"
+                  className={active === "rendered-nginx" ? "active" : ""}
+                  onClick={() => setActive("rendered-nginx")}
+                >
+                  rendered nginx
+                </button>
               </div>
               {active === "rendered" ? (
                 <pre className="config-json">
                   {renderedEnv ?? "（生成器暂不可用）"}
+                </pre>
+              ) : active === "rendered-nginx" ? (
+                <pre className="config-json">
+                  {renderedNginx ?? "（生成器暂不可用）"}
                 </pre>
               ) : active === "sync" ? (
                 config.syncItems.length === 0 ? (
