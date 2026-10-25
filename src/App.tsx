@@ -469,22 +469,42 @@ function App() {
       const config = await loadDeploymentConfig(projectId);
       for (const item of config.syncItems) {
         if (item.method === "git") {
-          await handleSyncItem(item.id);
+          const runId = await syncGitItem(projectId, item.id);
+          appendLine(projectId, "info", `启动同步 ${item.name || item.id}: ${runId}`);
+          let finished = false;
           for (let attempt = 0; attempt < 240; attempt += 1) {
             const runs = await listRuns(projectId, 20);
-            if (!runs.some((run) => run.status === "running")) break;
+            const run = runs.find((entry) => entry.id === runId);
+            if (run?.status === "failed" || run?.status === "canceled") {
+              throw new Error(`同步项 ${item.name || item.id} 执行失败`);
+            }
+            if (run?.status === "succeeded") {
+              finished = true;
+              break;
+            }
             await new Promise((resolve) => window.setTimeout(resolve, 500));
           }
-        } else if (item.method === "bundle") {
-          await handleSyncBundleItem(item.id);
-        } else if (item.method === "ftp") {
-          await handleSyncFtpItem(item.id);
+          if (!finished) {
+            throw new Error(`同步项 ${item.name || item.id} 等待超时`);
+          }
+        } else if (item.method === "bundle" || item.method === "ftp") {
+          const output =
+            item.method === "bundle"
+              ? await syncBundleItem(projectId, item.id)
+              : await syncFtpItem(projectId, item.id);
+          output
+            .split(/\r?\n/)
+            .filter((line) => line.trim() !== "")
+            .forEach((line) => appendLine(projectId, "info", line));
         }
+        setRunsVersion((value) => value + 1);
       }
       setToast({ id: Date.now(), message: "全部同步完成" });
     } catch (error) {
       appendLine(projectId, "error", `全部同步失败：${String(error)}`);
+      setRunsVersion((value) => value + 1);
       setToast({ id: Date.now(), message: "全部同步失败" });
+      throw error;
     }
   };
 
