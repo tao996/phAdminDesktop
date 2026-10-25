@@ -326,6 +326,22 @@ pub fn sync_bundle_item(
             .map_err(|error| format!("同步项不存在: {error}"))?
     };
 
+    let bundle_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("获取数据目录失败: {error}"))?
+        .join("tmp")
+        .join(format!(
+            "bundle-{}.bundle",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_millis())
+                .unwrap_or(0)
+        ));
+    if let Some(parent) = bundle_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("创建临时目录失败: {error}"))?;
+    }
+
     let result = (|| -> Result<String, String> {
         if method != "bundle" {
             return Err(format!("当前同步项不是 bundle，method={method}"));
@@ -356,20 +372,6 @@ pub fn sync_bundle_item(
             && let Some(parent) = dest.parent()
         {
             fs::create_dir_all(parent).map_err(|error| format!("创建目标父目录失败: {error}"))?;
-        }
-
-        let millis = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_millis())
-            .unwrap_or(0);
-        let bundle_path = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("获取数据目录失败: {error}"))?
-            .join("tmp")
-            .join(format!("bundle-{millis}.bundle"));
-        if let Some(parent) = bundle_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| format!("创建临时目录失败: {error}"))?;
         }
 
         let branch = if branch.trim().is_empty() {
@@ -470,6 +472,8 @@ pub fn sync_bundle_item(
         let _ = fs::remove_file(&bundle_path);
         Ok(transcript)
     })();
+
+    let _ = fs::remove_file(&bundle_path);
 
     let (status, output, error) = match result {
         Ok(output) => ("succeeded".to_string(), output, None),
