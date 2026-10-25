@@ -363,6 +363,9 @@ export async function listDatabaseBackups(
 export async function restoreDatabaseBackup(
   deploymentId: string,
   name: string,
-): Promise<number> {
-  return invoke<number>("restore_database_backup", { deploymentId, name });
+): Promise<{ snapshotPath: string; bytes: number }> {
+  return invoke<{ snapshotPath: string; bytes: number }>("restore_database_backup", {
+    deploymentId,
+    name,
+  });
 }

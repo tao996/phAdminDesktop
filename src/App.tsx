@@ -675,8 +675,12 @@ function App() {
     if (!activeProject) return;
     if (!window.confirm(`用 ${name} 覆盖当前数据库？`)) return;
     try {
-      const bytes = await restoreDatabaseBackup(activeProject.id, name);
-      appendLine(activeProject.id, "success", `数据库已从 ${name} 恢复（${bytes} bytes）`);
+      const result = await restoreDatabaseBackup(activeProject.id, name);
+      appendLine(
+        activeProject.id,
+        "success",
+        `数据库已从 ${name} 恢复（${result.bytes} bytes）；恢复前快照：${result.snapshotPath}`,
+      );
       setToast({ id: Date.now(), message: "数据库恢复完成" });
     } catch (error) {
       appendLine(activeProject.id, "error", `数据库恢复失败：${String(error)}`);

@@ -107,19 +107,27 @@ pub fn list_database_backups(
     Ok(entries)
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    pub snapshot_path: String,
+    pub bytes: usize,
+}
+
 #[tauri::command]
 pub fn restore_database_backup(
     app: AppHandle,
     state: State<'_, AppState>,
     deployment_id: String,
     name: String,
-) -> Result<usize, String> {
+) -> Result<RestoreResult, String> {
     if name.contains('/') || name.contains('\\') || !name.ends_with(".sql") {
         return Err("非法备份文件名".to_string());
     }
     let directory = backup_directory(&app, &deployment_id)?;
     let path = directory.join(&name);
     let sql = fs::read(&path).map_err(|error| format!("读取备份失败: {error}"))?;
+    let snapshot = dump_database(&app, &state, &deployment_id)?;
     let (target, user, password, database) = mysql_connection(&state, &deployment_id)?;
 
     let mut args = vec![
@@ -139,7 +147,10 @@ pub fn restore_database_backup(
     if !success {
         return Err(format!("恢复失败: {}", stderr.trim()));
     }
-    Ok(sql.len())
+    Ok(RestoreResult {
+        snapshot_path: snapshot.path,
+        bytes: sql.len(),
+    })
 }
 
 fn mysqldump_args(user: &str, password: &str, database: &str) -> Vec<String> {
@@ -162,18 +173,17 @@ fn mysqldump_args(user: &str, password: &str, database: &str) -> Vec<String> {
     args
 }
 
-#[tauri::command]
-pub fn backup_database(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    deployment_id: String,
+fn dump_database(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    deployment_id: &str,
 ) -> Result<DatabaseBackup, String> {
     let (target, project_name) = {
         let connection = state
             .db
             .lock()
             .map_err(|error| format!("数据库连接被占用: {error}"))?;
-        let target = runner::load_target(&connection, &deployment_id)?;
+        let target = runner::load_target(&connection, deployment_id)?;
         let project_name = connection
             .query_row(
                 "SELECT p.name
@@ -237,7 +247,7 @@ pub fn backup_database(
         .app_data_dir()
         .map_err(|error| format!("获取数据目录失败: {error}"))?
         .join("backups")
-        .join(&deployment_id);
+        .join(deployment_id);
     fs::create_dir_all(&directory).map_err(|error| format!("创建备份目录失败: {error}"))?;
     let path = directory.join(format!("{millis}.sql"));
     fs::write(&path, &stdout).map_err(|error| format!("写入备份失败: {error}"))?;
@@ -245,6 +255,15 @@ pub fn backup_database(
         path: path.to_string_lossy().to_string(),
         bytes: stdout.len(),
     })
+}
+
+#[tauri::command]
+pub fn backup_database(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<DatabaseBackup, String> {
+    dump_database(&app, &state, &deployment_id)
 }
 
 #[cfg(test)]
