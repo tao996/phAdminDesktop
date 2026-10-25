@@ -6,6 +6,7 @@ import {
   renderConfigPreview,
   renderNginxPreview,
   renderComposePreview,
+  renderConfigPhpPreview,
   writeGeneratedConfig,
   openGeneratedDir,
   applyGeneratedConfig,
@@ -52,6 +53,7 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [renderedEnv, setRenderedEnv] = useState<string | null>(null);
   const [renderedNginx, setRenderedNginx] = useState<string | null>(null);
   const [renderedCompose, setRenderedCompose] = useState<string | null>(null);
+  const [renderedConfigPhp, setRenderedConfigPhp] = useState<string | null>(null);
   const [generated, setGenerated] = useState<GeneratedFiles | null>(null);
   const [generatedStatus, setGeneratedStatus] = useState<GeneratedStatus | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -116,7 +118,9 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
         ? renderedNginx
         : active === "rendered-compose"
           ? renderedCompose
-          : null;
+          : active === "rendered-config-php"
+            ? renderedConfigPhp
+            : null;
 
   const applyRemote = async () => {
     if (
@@ -160,6 +164,13 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
       })
       .catch(() => {
         if (!cancelled) setRenderedCompose(null);
+      });
+    void renderConfigPhpPreview(project.id)
+      .then((value) => {
+        if (!cancelled) setRenderedConfigPhp(value);
+      })
+      .catch(() => {
+        if (!cancelled) setRenderedConfigPhp(null);
       });
     return () => {
       cancelled = true;
@@ -265,10 +276,18 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                 >
                   rendered compose
                 </button>
+                <button
+                  type="button"
+                  className={active === "rendered-config-php" ? "active" : ""}
+                  onClick={() => setActive("rendered-config-php")}
+                >
+                  rendered config.php
+                </button>
               </div>
               {(active === "rendered" ||
                 active === "rendered-nginx" ||
-                active === "rendered-compose") && (
+                active === "rendered-compose" ||
+                active === "rendered-config-php") && (
                 <div className="config-generate-row">
                   <button
                     type="button"
@@ -369,6 +388,10 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
               ) : active === "rendered-compose" ? (
                 <pre className="config-json">
                   {renderedCompose ?? "（生成器暂不可用）"}
+                </pre>
+              ) : active === "rendered-config-php" ? (
+                <pre className="config-json">
+                  {renderedConfigPhp ?? "（生成器暂不可用）"}
                 </pre>
               ) : active === "sync" ? (
                 config.syncItems.length === 0 ? (

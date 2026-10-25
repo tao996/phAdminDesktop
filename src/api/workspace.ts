@@ -269,6 +269,10 @@ export async function renderComposePreview(): Promise<string> {
   return invoke<string>("render_compose_preview");
 }
 
+export async function renderConfigPhpPreview(deploymentId: string): Promise<string> {
+  return invoke<string>("render_config_php_preview", { deploymentId });
+}
+
 export async function writeGeneratedConfig(
   deploymentId: string,
 ): Promise<GeneratedFiles> {

@@ -46,6 +46,7 @@ pub fn run() {
             render::render_config_preview,
             render::render_nginx_preview,
             render::render_compose_preview,
+            render::render_config_php_preview,
             render::write_generated_config,
             render::generated_config_status,
             render::open_generated_dir,

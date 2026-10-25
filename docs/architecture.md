@@ -321,6 +321,7 @@ SQLite
 - 「预览配置」打开只读 ConfigModal，查看 sync_items 与 config/hooks/docker/router/nginx JSON；
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；
 - 新增 `sync_bundle_item`：本地 filesystem / SSH 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，SSH 通过 scp 上传；执行结果写入 runs 与日志；
+- 新增 config.php 预览：将 deployment_settings.config_json 转 PHP 数组字面量并套用模板（尚未写入 generated/远程）；
 - 新增 `sync_ftp_item`：本地目录递归复制 / SSH `scp -r`，本地支持 excludes；
 - ftp/SFTP 基础同步已接入；`.env` / Nginx / docker-compose 可预览并写入本地 generated 目录，支持变更状态检测；生成文件可上传远程、写 `.bak-<millis>` 备份、检查差异并恢复备份（vbox 已实测）；
 - 下一步：远程配置写入产品策略 / 部署计划接入原生同步。

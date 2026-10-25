@@ -2,12 +2,14 @@ use std::fs;
 use std::process::Command;
 
 use serde::Serialize;
+use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 
 use crate::AppState;
 
 const ENV_TEMPLATE: &str = include_str!("../templates/env.example");
 const COMPOSE_TEMPLATE: &str = include_str!("../templates/docker-compose.yaml");
+const CONFIG_TEMPLATE: &str = include_str!("../templates/config.php.template");
 
 pub(crate) fn render_env(project: &str, remote_path: &str, nginx_port: i64) -> String {
     ENV_TEMPLATE
@@ -151,6 +153,55 @@ pub fn render_nginx_preview(
     }
 
     Ok(render_nginx(&domains, nginx_port, ssl != 0))
+}
+
+fn php_string(value: &str) -> String {
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
+}
+
+fn php_literal(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => php_string(value),
+        Value::Array(items) => format!(
+            "[{}]",
+            items.iter().map(php_literal).collect::<Vec<_>>().join(", ")
+        ),
+        Value::Object(items) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(|(key, value)| format!("{} => {}", php_string(key), php_literal(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+fn render_config_php(config_json: &str) -> String {
+    let value = serde_json::from_str(config_json).unwrap_or(Value::Object(Default::default()));
+    CONFIG_TEMPLATE.replace("{{CONFIG_OVERRIDES}}", &php_literal(&value))
+}
+
+#[tauri::command]
+pub fn render_config_php_preview(
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<String, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    let config_json = connection
+        .query_row(
+            "SELECT COALESCE((SELECT config_json FROM deployment_settings WHERE deployment_id = ?1), '{}')",
+            [&deployment_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|error| format!("读取配置失败: {error}"))?;
+    Ok(render_config_php(&config_json))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -388,5 +439,14 @@ mod tests {
         assert!(COMPOSE_TEMPLATE.contains("php:"));
         assert!(COMPOSE_TEMPLATE.contains("mysql:"));
         assert!(COMPOSE_TEMPLATE.contains("redis:"));
+    }
+
+    #[test]
+    fn renders_config_php_literal() {
+        let php = render_config_php(r#"{"app":{"debug":true,"name":"demo"},"list":[1,"x"]}"#);
+        assert!(php.contains("'debug' => true"));
+        assert!(php.contains("'name' => 'demo'"));
+        assert!(php.contains("'list' => [1, 'x']"));
+        assert!(!php.contains("{{CONFIG_OVERRIDES}}"));
     }
 }
