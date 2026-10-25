@@ -73,6 +73,15 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
     }
   };
 
+  const renderedContent =
+    active === "rendered"
+      ? renderedEnv
+      : active === "rendered-nginx"
+        ? renderedNginx
+        : active === "rendered-compose"
+          ? renderedCompose
+          : null;
+
   useEffect(() => {
     if (!canUseTauri()) return;
     let cancelled = false;
@@ -222,6 +231,15 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                       onClick={() => void openGeneratedDir(project.id)}
                     >
                       打开目录
+                    </button>
+                  )}
+                  {renderedContent && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      onClick={() => void navigator.clipboard?.writeText(renderedContent)}
+                    >
+                      复制内容
                     </button>
                   )}
                   {generatedStatus && (
