@@ -26,6 +26,7 @@ import {
   type TerminalLineType,
 } from "./data/mock";
 import { listen } from "@tauri-apps/api/event";
+import { parseCommandLine } from "./lib/command";
 import {
   canUseTauri,
   importLegacyConfig,
@@ -288,19 +289,29 @@ function App() {
     if (!activeProject) return;
     const projectId = activeProject.id;
     const trimmed = command.trim();
+    if (!trimmed) return;
     appendLine(projectId, "command", `$ ${trimmed}`);
 
-    if (canUseTauri() && trimmed === "docker compose ps") {
-      setToast({ id: Date.now(), message: "正在读取容器状态…" });
-      void runCommand(projectId, "docker", ["compose", "ps"]).catch((error: unknown) => {
-        appendLine(projectId, "error", `启动失败：${String(error)}`);
-        setToast({ id: Date.now(), message: "容器状态读取失败" });
-      });
+    if (!canUseTauri()) {
+      appendLine(projectId, "info", "→ 浏览器预览模式，不执行真实命令");
+      setToast({ id: Date.now(), message: "浏览器预览：命令未执行" });
       return;
     }
 
-    appendLine(projectId, "info", "→ 当前终端仅接入 docker compose ps；其它命令仍为 UI 模拟");
-    setToast({ id: Date.now(), message: "命令已写入终端（模拟）" });
+    let tokens: string[];
+    try {
+      tokens = parseCommandLine(trimmed);
+    } catch (error) {
+      appendLine(projectId, "error", error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (tokens.length === 0) return;
+
+    setToast({ id: Date.now(), message: `执行 ${tokens[0]} …` });
+    void runCommand(projectId, tokens[0], tokens.slice(1)).catch((error: unknown) => {
+      appendLine(projectId, "error", `启动失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "命令启动失败" });
+    });
   };
 
   const handleTestConnection = () => {

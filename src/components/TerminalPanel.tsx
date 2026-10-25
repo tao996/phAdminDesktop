@@ -113,10 +113,10 @@ export function TerminalPanel({
             <input
               value={value}
               onChange={(event) => setValue(event.target.value)}
-              placeholder="输入命令，例如 app:boyu dc:status（UI 预览）"
+              placeholder="输入命令，例如 docker compose ps"
               aria-label="终端命令"
             />
-            <span className="terminal-hint">Enter 执行</span>
+            <span className="terminal-hint">Enter 执行 · 白名单</span>
           </form>
         </>
       )}

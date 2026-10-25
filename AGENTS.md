@@ -83,13 +83,13 @@ Phase 1（SQLite + 只读/导入）已完成：
 - `load_workspace` 只读 command；
 - `import_legacy_config`：解析 `php admin config:export` JSON，设置页可导入；
 - `run_command`：本地 filesystem / 系统 `ssh` 执行，stdout/stderr 事件 + `runs`；
+- 终端白名单命令：`docker/php/git/ssh/ls/pwd/whoami/composer`，前端 argv 解析，不经过 shell；
 - `list_runs` / `cancel_run`：终端「任务」面板查看历史并取消；
 - `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
 - Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock。
 
 下一步：
 
-- 任意终端命令；
 - 部署 / 升级编排。
 
 不要提前实现部署/SSH/Docker 写操作。先把数据层和只读链路打通。

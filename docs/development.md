@@ -219,11 +219,11 @@ Phase 1 已完成：
 - `list_runs` 任务历史 + `cancel_run`；终端「任务」面板；
 - `get_containers` 解析 `docker compose ps --format json`，Containers 面板自动刷新；
 - Overview 容器统计使用 `get_containers`，最近活动使用 `list_runs`；
+- 终端支持白名单命令（argv 解析，不经过 shell）；
 - 备份仍为 mock。
 
 下一步：
 
-- 任意终端命令；
 - 部署 / 升级编排。
 
 详见 [roadmap.md](roadmap.md)。
