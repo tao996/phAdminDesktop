@@ -9,6 +9,8 @@ import {
   writeGeneratedConfig,
   openGeneratedDir,
   applyGeneratedConfig,
+  remoteConfigStatus,
+  type RemoteFileStatus,
   generatedConfigStatus,
   type GeneratedFiles,
   type GeneratedStatus,
@@ -51,6 +53,15 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [generatedStatus, setGeneratedStatus] = useState<GeneratedStatus | null>(null);
   const [generating, setGenerating] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [remoteStatus, setRemoteStatus] = useState<RemoteFileStatus[]>([]);
+
+  const checkRemote = async () => {
+    try {
+      setRemoteStatus(await remoteConfigStatus(project.id));
+    } catch {
+      setRemoteStatus([]);
+    }
+  };
 
   const refreshStatus = () => {
     if (!canUseTauri()) return;
@@ -255,6 +266,21 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                       {applying ? "上传中…" : "上传到远程"}
                     </button>
                   )}
+                  {generatedStatus?.exists && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      onClick={() => void checkRemote()}
+                    >
+                      检查远程
+                    </button>
+                  )}
+                  {remoteStatus.map((status) => (
+                    <span className="tag" key={status.file}>
+                      {status.file}:
+                      {!status.exists ? "缺失" : status.changed ? "不同" : "一致"}
+                    </span>
+                  ))}
                   {generatedStatus?.exists && (
                     <button
                       type="button"

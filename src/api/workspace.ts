@@ -285,3 +285,15 @@ export async function applyGeneratedConfig(
 ): Promise<string> {
   return invoke<string>("apply_generated_config", { deploymentId, backup });
 }
+
+export interface RemoteFileStatus {
+  file: string;
+  exists: boolean;
+  changed: boolean;
+}
+
+export async function remoteConfigStatus(
+  deploymentId: string,
+): Promise<RemoteFileStatus[]> {
+  return invoke<RemoteFileStatus[]>("remote_config_status", { deploymentId });
+}
