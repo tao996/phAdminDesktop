@@ -4,8 +4,8 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::models::{
-    Deployment, DeploymentConfig, DeploymentSettings, Project, RunRecord, Server, SyncItem,
-    Workspace,
+    DeployRunRecord, Deployment, DeploymentConfig, DeploymentSettings, Project, RunRecord, Server,
+    SyncItem, Workspace,
 };
 
 const SEED_JSON: &str = include_str!("../seed.json");
@@ -354,6 +354,32 @@ pub fn list_runs(
             deploy_run_id: row.get(9)?,
             step_key: row.get(10)?,
             step_title: row.get(11)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_deploy_runs(
+    connection: &Connection,
+    deployment_id: &str,
+    limit: i64,
+) -> rusqlite::Result<Vec<DeployRunRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT id, deployment_id, status, plan_json, started_at, ended_at, error_summary
+         FROM deploy_runs
+         WHERE deployment_id = ?1
+         ORDER BY started_at DESC, id DESC
+         LIMIT ?2",
+    )?;
+    let rows = statement.query_map(params![deployment_id, limit], |row| {
+        Ok(DeployRunRecord {
+            id: row.get(0)?,
+            deployment_id: row.get(1)?,
+            status: row.get(2)?,
+            plan_json: row.get(3)?,
+            started_at: row.get(4)?,
+            ended_at: row.get(5)?,
+            error_summary: row.get(6)?,
         })
     })?;
     rows.collect()

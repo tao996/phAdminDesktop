@@ -2446,6 +2446,27 @@ select:focus-visible,
   padding: 6px 18px;
 }
 
+.deploy-history {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.deploy-history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.deploy-history-row code {
+  color: var(--muted);
+}
+
 .runs-empty {
   padding: 26px 8px;
   color: var(--faint);

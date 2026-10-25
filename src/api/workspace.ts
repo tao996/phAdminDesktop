@@ -80,6 +80,16 @@ export interface DeployStep {
   args: string[];
 }
 
+export interface DeployRunRecord {
+  id: string;
+  deploymentId: string;
+  status: "running" | "succeeded" | "failed" | "canceled";
+  planJson: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  errorSummary: string | null;
+}
+
 export interface DeployStart {
   deployRunId: string;
   steps: DeployStep[];
@@ -166,6 +176,13 @@ export async function listRuns(
   limit = 50,
 ): Promise<RunRecord[]> {
   return invoke<RunRecord[]>("list_runs", { deploymentId, limit });
+}
+
+export async function listDeployRuns(
+  deploymentId: string,
+  limit = 20,
+): Promise<DeployRunRecord[]> {
+  return invoke<DeployRunRecord[]>("list_deploy_runs", { deploymentId, limit });
 }
 
 export async function getContainers(

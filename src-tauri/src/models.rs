@@ -107,3 +107,15 @@ pub struct DeploymentConfig {
     pub sync_items: Vec<SyncItem>,
     pub settings: Option<DeploymentSettings>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeployRunRecord {
+    pub id: String,
+    pub deployment_id: String,
+    pub status: String,
+    pub plan_json: String,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub error_summary: Option<String>,
+}

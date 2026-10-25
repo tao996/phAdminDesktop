@@ -4,7 +4,9 @@ import {
   canUseTauri,
   cancelRun,
   getRunLog,
+  listDeployRuns,
   listRuns,
+  type DeployRunRecord,
   type RunRecord,
 } from "../api/workspace";
 import { Icon } from "./Icon";
@@ -36,6 +38,7 @@ export function RunsModal({
   onNotify,
 }: RunsModalProps) {
   const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [deployRuns, setDeployRuns] = useState<DeployRunRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -65,6 +68,14 @@ export function RunsModal({
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+
+    void listDeployRuns(project.id)
+      .then((data) => {
+        if (!cancelled) setDeployRuns(data);
+      })
+      .catch(() => {
+        if (!cancelled) setDeployRuns([]);
       });
 
     return () => {
@@ -134,6 +145,23 @@ export function RunsModal({
             刷新
           </button>
         </div>
+
+        {deployRuns.length > 0 && (
+          <div className="deploy-history">
+            <span className="muted-caption">最近部署</span>
+            {deployRuns.slice(0, 3).map((deploy) => (
+              <div className="deploy-history-row" key={deploy.id}>
+                <span className={`run-status ${deploy.status}`}>
+                  <span className="status-dot" />
+                  {deploy.status}
+                </span>
+                <code>{deploy.id.slice(-8)}</code>
+                <small>{formatTime(deploy.startedAt)}</small>
+                {deploy.errorSummary && <small className="run-error">{deploy.errorSummary}</small>}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="runs-body">
           {loading && <div className="runs-empty">正在读取任务历史…</div>}

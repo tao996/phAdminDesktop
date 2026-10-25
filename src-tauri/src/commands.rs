@@ -11,7 +11,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::AppState;
 use crate::db;
 use crate::legacy;
-use crate::models::{DeploymentConfig, ImportSummary, RunRecord, Workspace};
+use crate::models::{DeployRunRecord, DeploymentConfig, ImportSummary, RunRecord, Workspace};
 use crate::runner;
 
 fn shell_quote(value: &str) -> String {
@@ -124,6 +124,21 @@ pub fn read_run_log(state: State<'_, AppState>, run_id: String) -> Result<String
 
     let path = log_path.ok_or_else(|| "该任务没有日志文件".to_string())?;
     std::fs::read_to_string(&path).map_err(|error| format!("读取日志文件失败: {error}"))
+}
+
+#[tauri::command]
+pub fn list_deploy_runs(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    limit: Option<u32>,
+) -> Result<Vec<DeployRunRecord>, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    let limit = i64::from(limit.unwrap_or(20).clamp(1, 100));
+    db::list_deploy_runs(&connection, &deployment_id, limit)
+        .map_err(|error| format!("读取部署历史失败: {error}"))
 }
 
 #[tauri::command]

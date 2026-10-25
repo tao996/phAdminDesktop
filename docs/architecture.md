@@ -316,6 +316,7 @@ SQLite
 - Overview 的容器统计来自 `get_containers`，最近活动来自 `list_runs`（Tauri 模式）；备份仍为 mock；
 - Deploy 面板「开始升级」已接入 `start_deploy` 编排：升级 → compose up → Nginx reload → 可选重启 PHP；任一步失败中止；同一 deployment 禁止并发部署；
 - 步骤 run 通过 `deploy_run_id` / `step_key` / `step_title` 关联 `deploy_runs`，任务面板可查看步骤；
+- 任务面板增加最近部署父记录（deploy_runs）展示；
 - Deploy 面板通过 `preview_deploy_plan` 展示真实部署步骤与命令；
 - 「预览配置」打开只读 ConfigModal，查看 sync_items 与 config/hooks/docker/router/nginx JSON；
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；

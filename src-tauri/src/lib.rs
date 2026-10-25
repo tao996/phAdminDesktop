@@ -49,6 +49,7 @@ pub fn run() {
             render::generated_config_status,
             commands::import_legacy_config,
             commands::list_runs,
+            commands::list_deploy_runs,
             commands::read_run_log,
             deploy::start_deploy,
             deploy::preview_deploy_plan,
