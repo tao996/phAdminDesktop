@@ -3,6 +3,7 @@ import type { Project } from "../data/mock";
 import {
   canUseTauri,
   loadDeploymentConfig,
+  renderConfigPreview,
   type DeploymentConfig,
 } from "../api/workspace";
 import { Icon } from "./Icon";
@@ -35,6 +36,22 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [active, setActive] = useState<string>("sync");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [renderedEnv, setRenderedEnv] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    let cancelled = false;
+    void renderConfigPreview(project.id)
+      .then((value) => {
+        if (!cancelled) setRenderedEnv(value);
+      })
+      .catch(() => {
+        if (!cancelled) setRenderedEnv(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id]);
 
   useEffect(() => {
     if (!canUseTauri()) {
@@ -114,8 +131,19 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                       {section.label}
                     </button>
                   ))}
+                <button
+                  type="button"
+                  className={active === "rendered" ? "active" : ""}
+                  onClick={() => setActive("rendered")}
+                >
+                  rendered .env
+                </button>
               </div>
-              {active === "sync" ? (
+              {active === "rendered" ? (
+                <pre className="config-json">
+                  {renderedEnv ?? "（生成器暂不可用）"}
+                </pre>
+              ) : active === "sync" ? (
                 config.syncItems.length === 0 ? (
                   <div className="runs-empty">没有导入同步项。</div>
                 ) : (

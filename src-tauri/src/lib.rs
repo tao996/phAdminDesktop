@@ -3,6 +3,7 @@ mod db;
 mod deploy;
 mod legacy;
 mod models;
+mod render;
 mod runner;
 
 use std::collections::{HashMap, HashSet};
@@ -41,6 +42,7 @@ pub fn run() {
             commands::sync_git_item,
             commands::sync_bundle_item,
             commands::sync_ftp_item,
+            render::render_config_preview,
             commands::import_legacy_config,
             commands::list_runs,
             commands::read_run_log,

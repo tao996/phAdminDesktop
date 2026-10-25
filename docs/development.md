@@ -227,6 +227,7 @@ Phase 1 已完成：
 - 备份仍为 mock；原生同步/配置渲染待接入；
 - Deploy 面板读取真实 `sync_items` / `deployment_settings` 并展示同步项；
 - 配置预览弹窗展示同步项与 config/hooks/docker/router/nginx JSON；
+- rendered .env 预览：项目名/路径/端口/默认镜像，不写盘。
 - 本地 filesystem / SSH 的 git 同步项支持 clone / pull；
 - 本地 bundle 同步项使用 git bundle + clone/fetch/merge；
 - SSH bundle 通过 scp 上传并在远程 fetch/merge；
@@ -235,6 +236,6 @@ Phase 1 已完成：
 
 下一步：
 
-- 配置模板渲染 / Nginx 生成。
+- 配置写入 / docker-compose / Nginx 生成。
 
 详见 [roadmap.md](roadmap.md)。

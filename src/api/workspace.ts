@@ -211,3 +211,7 @@ export async function syncFtpItem(
 ): Promise<string> {
   return invoke<string>("sync_ftp_item", { deploymentId, itemId });
 }
+
+export async function renderConfigPreview(deploymentId: string): Promise<string> {
+  return invoke<string>("render_config_preview", { deploymentId });
+}
