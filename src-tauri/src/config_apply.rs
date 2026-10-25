@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -262,4 +263,78 @@ pub fn restore_config_backup(
         }
     }
     Ok(format!("restored {file} from {backup_name}"))
+}
+
+#[tauri::command]
+pub fn prune_config_backups(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    keep: u32,
+) -> Result<usize, String> {
+    let keep = keep.clamp(1, 100) as usize;
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    let mut names = Vec::new();
+    if target.kind == "filesystem" {
+        if let Ok(entries) = fs::read_dir(target.remote_path.trim_end_matches(['/', '\\'])) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.contains(".bak-") {
+                    names.push(name);
+                }
+            }
+        }
+    } else {
+        let args = vec![
+            target.remote_path.trim_end_matches('/').to_string(),
+            "-maxdepth".to_string(),
+            "1".to_string(),
+            "-type".to_string(),
+            "f".to_string(),
+            "-name".to_string(),
+            "*.bak-*".to_string(),
+            "-printf".to_string(),
+            "%f\\n".to_string(),
+        ];
+        let (success, output) = runner::capture_target_command(&target, "find", &args)?;
+        if success {
+            names.extend(output.lines().map(|line| line.trim().to_string()));
+        }
+    }
+
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for name in names {
+        if let Some(file) = name.split(".bak-").next()
+            && FILES.contains(&file)
+        {
+            groups.entry(file.to_string()).or_default().push(name);
+        }
+    }
+    let mut removed = 0;
+    for (_, mut backups) in groups {
+        backups.sort();
+        backups.reverse();
+        for name in backups.into_iter().skip(keep) {
+            if target.kind == "filesystem" {
+                fs::remove_file(destination_for(&target, &name))
+                    .map_err(|error| format!("删除 {name} 失败: {error}"))?;
+            } else {
+                let (success, output) = runner::capture_target_command(
+                    &target,
+                    "rm",
+                    &["-f".to_string(), destination_for(&target, &name)],
+                )?;
+                if !success {
+                    return Err(format!("删除 {name} 失败: {}", output.trim()));
+                }
+            }
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }

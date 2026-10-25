@@ -319,3 +319,10 @@ export async function restoreConfigBackup(
 ): Promise<string> {
   return invoke<string>("restore_config_backup", { deploymentId, backupName });
 }
+
+export async function pruneConfigBackups(
+  deploymentId: string,
+  keep: number,
+): Promise<number> {
+  return invoke<number>("prune_config_backups", { deploymentId, keep });
+}

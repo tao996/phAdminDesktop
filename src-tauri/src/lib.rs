@@ -54,6 +54,7 @@ pub fn run() {
             config_apply::remote_config_status,
             config_apply::list_config_backups,
             config_apply::restore_config_backup,
+            config_apply::prune_config_backups,
             commands::import_legacy_config,
             commands::list_runs,
             commands::list_deploy_runs,

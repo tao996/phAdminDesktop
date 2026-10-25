@@ -13,6 +13,7 @@ import {
   remoteConfigStatus,
   listConfigBackups,
   restoreConfigBackup,
+  pruneConfigBackups,
   type ConfigBackup,
   type RemoteFileStatus,
   generatedConfigStatus,
@@ -69,12 +70,21 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
     }
   };
 
-  const restore = async (backup: ConfigBackup) => {
-    if (!window.confirm(`用 ${backup.name} 恢复 ${backup.file}？当前文件会先备份。`)) return;
+  const restore = async (backup: ConfigBackup) => {    if (!window.confirm(`用 ${backup.name} 恢复 ${backup.file}？当前文件会先备份。`)) return;
     try {
       await restoreConfigBackup(project.id, backup.name);
       await loadBackups();
       await checkRemote();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const prune = async () => {
+    if (!window.confirm("每个文件仅保留最近 5 个备份，删除更旧的备份？")) return;
+    try {
+      await pruneConfigBackups(project.id, 5);
+      await loadBackups();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -343,6 +353,11 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                       恢复 {backup.file}
                     </button>
                   ))}
+                  {backups.length > 0 && (
+                    <button type="button" className="mini-button" onClick={() => void prune()}>
+                      清理旧备份
+                    </button>
+                  )}
                   {generatedStatus?.exists && (
                     <button
                       type="button"

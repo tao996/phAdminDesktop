@@ -172,7 +172,7 @@
 - [x] 本地 generated 状态检测
 - [x] 任务面板最近部署记录
 - [x] vbox 远程 git / bundle / scp 实测通过（key_path 登录）
-- [x] 远程 generated 配置上传 + `.bak` 备份 + 差异检查 + 恢复（vbox 实测）
+- [x] 远程 generated 配置上传 + `.bak` 备份 + 差异检查 + 恢复 + 清理（vbox 实测）
 - [x] config.php 预览 / 生成 / 上传
 - [ ] 远程配置写入产品策略
 - [ ] PHP 回退验收
