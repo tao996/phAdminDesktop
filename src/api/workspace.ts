@@ -297,3 +297,19 @@ export async function remoteConfigStatus(
 ): Promise<RemoteFileStatus[]> {
   return invoke<RemoteFileStatus[]>("remote_config_status", { deploymentId });
 }
+
+export interface ConfigBackup {
+  name: string;
+  file: string;
+}
+
+export async function listConfigBackups(deploymentId: string): Promise<ConfigBackup[]> {
+  return invoke<ConfigBackup[]>("list_config_backups", { deploymentId });
+}
+
+export async function restoreConfigBackup(
+  deploymentId: string,
+  backupName: string,
+): Promise<string> {
+  return invoke<string>("restore_config_backup", { deploymentId, backupName });
+}

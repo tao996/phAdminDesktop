@@ -10,6 +10,9 @@ import {
   openGeneratedDir,
   applyGeneratedConfig,
   remoteConfigStatus,
+  listConfigBackups,
+  restoreConfigBackup,
+  type ConfigBackup,
   type RemoteFileStatus,
   generatedConfigStatus,
   type GeneratedFiles,
@@ -54,6 +57,26 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [generating, setGenerating] = useState(false);
   const [applying, setApplying] = useState(false);
   const [remoteStatus, setRemoteStatus] = useState<RemoteFileStatus[]>([]);
+  const [backups, setBackups] = useState<ConfigBackup[]>([]);
+
+  const loadBackups = async () => {
+    try {
+      setBackups(await listConfigBackups(project.id));
+    } catch {
+      setBackups([]);
+    }
+  };
+
+  const restore = async (backup: ConfigBackup) => {
+    if (!window.confirm(`用 ${backup.name} 恢复 ${backup.file}？当前文件会先备份。`)) return;
+    try {
+      await restoreConfigBackup(project.id, backup.name);
+      await loadBackups();
+      await checkRemote();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
 
   const checkRemote = async () => {
     try {
@@ -280,6 +303,26 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                       {status.file}:
                       {!status.exists ? "缺失" : status.changed ? "不同" : "一致"}
                     </span>
+                  ))}
+                  {generatedStatus?.exists && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      onClick={() => void loadBackups()}
+                    >
+                      备份列表
+                    </button>
+                  )}
+                  {backups.slice(0, 3).map((backup) => (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      key={backup.name}
+                      title={backup.name}
+                      onClick={() => void restore(backup)}
+                    >
+                      恢复 {backup.file}
+                    </button>
                   ))}
                   {generatedStatus?.exists && (
                     <button

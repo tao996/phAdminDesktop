@@ -147,3 +147,119 @@ pub fn remote_config_status(
     }
     Ok(statuses)
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigBackup {
+    pub name: String,
+    pub file: String,
+}
+
+fn destination_for(target: &Target, file: &str) -> String {
+    if target.kind == "filesystem" {
+        PathBuf::from(target.remote_path.trim_end_matches(['/', '\\']))
+            .join(file)
+            .to_string_lossy()
+            .to_string()
+    } else {
+        format!("{}/{}", target.remote_path.trim_end_matches('/'), file)
+    }
+}
+
+#[tauri::command]
+pub fn list_config_backups(
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<Vec<ConfigBackup>, String> {
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    let mut names = Vec::new();
+    if target.kind == "filesystem" {
+        if let Ok(entries) = fs::read_dir(target.remote_path.trim_end_matches(['/', '\\'])) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.contains(".bak-") {
+                    names.push(name);
+                }
+            }
+        }
+    } else {
+        let args = vec![
+            target.remote_path.trim_end_matches('/').to_string(),
+            "-maxdepth".to_string(),
+            "1".to_string(),
+            "-type".to_string(),
+            "f".to_string(),
+            "-name".to_string(),
+            "*.bak-*".to_string(),
+            "-printf".to_string(),
+            "%f\\n".to_string(),
+        ];
+        let (success, output) = runner::capture_target_command(&target, "find", &args)?;
+        if success {
+            names.extend(output.lines().map(|line| line.trim().to_string()));
+        }
+    }
+    names.sort();
+    names.reverse();
+    Ok(names
+        .into_iter()
+        .filter_map(|name| {
+            let file = name.split(".bak-").next()?.to_string();
+            FILES
+                .contains(&file.as_str())
+                .then_some(ConfigBackup { name, file })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn restore_config_backup(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    backup_name: String,
+) -> Result<String, String> {
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    let file = backup_name
+        .split(".bak-")
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    if !FILES.contains(&file.as_str()) || !backup_name.contains(".bak-") {
+        return Err("非法的备份文件名".to_string());
+    }
+    let backup = destination_for(&target, &backup_name);
+    let destination = destination_for(&target, &file);
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    backup_existing(&target, &destination, millis)?;
+
+    if target.kind == "filesystem" {
+        fs::copy(&backup, &destination).map_err(|error| format!("恢复失败: {error}"))?;
+    } else {
+        let script = format!(
+            "cp -a {} {}",
+            shell_quote(&backup),
+            shell_quote(&destination)
+        );
+        let (success, output) =
+            runner::capture_target_command(&target, "sh", &["-lc".to_string(), script])?;
+        if !success {
+            return Err(format!("恢复失败: {}", output.trim()));
+        }
+    }
+    Ok(format!("restored {file} from {backup_name}"))
+}

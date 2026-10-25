@@ -233,7 +233,7 @@ Phase 1 已完成：
 - SSH bundle 通过 scp 上传并在远程 fetch/merge；
 - ftp 同步：本地递归复制 / SSH scp -r（本地支持 excludes）；
 - 同步项级锁防止重复执行；ftp 锁在查询失败时不会残留；
-- 远程配置上传：`apply_generated_config` 覆盖前写 `.bak-<millis>`，vbox 实测。
+- 远程配置上传：`apply_generated_config` 覆盖前写 `.bak-<millis>`，支持列表与恢复，vbox 实测。
 
 下一步：
 

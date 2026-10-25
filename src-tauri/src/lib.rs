@@ -51,6 +51,8 @@ pub fn run() {
             render::open_generated_dir,
             config_apply::apply_generated_config,
             config_apply::remote_config_status,
+            config_apply::list_config_backups,
+            config_apply::restore_config_backup,
             commands::import_legacy_config,
             commands::list_runs,
             commands::list_deploy_runs,
