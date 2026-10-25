@@ -224,7 +224,13 @@ export function Workspace({
           />
         )}
         {section === "containers" && (
-          <ContainersPanel project={project} server={server} onAction={onAction} />
+          <ContainersPanel
+            project={project}
+            server={server}
+            onAction={onAction}
+            onExecuteCommand={onExecuteCommand}
+            refreshVersion={refreshVersion}
+          />
         )}
         {section === "nginx" && (
           <NginxPanel project={project} server={server} onAction={onAction} />

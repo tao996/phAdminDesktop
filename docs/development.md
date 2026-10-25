@@ -219,6 +219,7 @@ Phase 1 已完成：
 - `list_runs` 任务历史 + `cancel_run`；终端「任务」面板；
 - 运行输出写入 `logs/<run_id>.log`，任务面板可查看；
 - `get_containers` 解析 `docker compose ps --format json`，Containers 面板自动刷新；
+- 容器启动/停止/重启/日志已接入真实命令；
 - Overview 容器统计使用 `get_containers`，最近活动使用 `list_runs`；
 - 终端支持白名单命令（argv 解析，不经过 shell）；
 - Deploy 面板「开始升级」执行真实 `php admin app:<name> upgrade`；

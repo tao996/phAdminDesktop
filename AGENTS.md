@@ -87,6 +87,7 @@ Phase 1（SQLite + 只读/导入）已完成：
 - `list_runs` / `cancel_run`：终端「任务」面板查看历史并取消；
 - 运行输出持久化到 `logs/<run_id>.log`，`read_run_log` 供任务面板查看；
 - `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
+- 容器启动/停止/重启/日志通过 `run_command` 执行；
 - Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；备份仍为 mock；
 - Deploy「开始升级」执行真实 `php admin app:<name> upgrade`；成功后串行重启 PHP，失败跳过；
 - 同步 / 配置 / Nginx 多步骤编排未接入。

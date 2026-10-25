@@ -509,7 +509,17 @@ export function DeployPanel({
   );
 }
 
-export function ContainersPanel({ project, onAction }: PanelCommonProps) {
+interface ContainersPanelProps extends PanelCommonProps {
+  onExecuteCommand: (command: string) => void;
+  refreshVersion: number;
+}
+
+export function ContainersPanel({
+  project,
+  onAction,
+  onExecuteCommand,
+  refreshVersion,
+}: ContainersPanelProps) {
   const [containers, setContainers] = useState<Container[]>(project.containers);
   const [refreshing, setRefreshing] = useState(false);
   const [containerError, setContainerError] = useState<string | null>(null);
@@ -525,7 +535,7 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
     if (canUseTauri()) {
       void refreshContainers();
     }
-  }, [project.id]);
+  }, [project.id, refreshVersion]);
 
   const refreshContainers = async () => {
     if (!canUseTauri()) {
@@ -575,7 +585,7 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
-                    onAction("docker compose start", "全部启动");
+                    onExecuteCommand("docker compose start");
                   }}
                 >
                   <Icon name="play" size={13} />
@@ -585,7 +595,7 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
-                    onAction("docker compose up -d", "全部重启");
+                    onExecuteCommand("docker compose up -d");
                   }}
                 >
                   <Icon name="refresh" size={13} />
@@ -596,7 +606,7 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
                   className="danger"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
-                    onAction("docker compose stop", "全部停止");
+                    onExecuteCommand("docker compose stop");
                   }}
                 >
                   <Icon name="close" size={13} />
@@ -690,9 +700,8 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
                           type="button"
                           className="mini-button"
                           onClick={() =>
-                            onAction(
-                              `php admin app:${project.name} dc:log:${container.service}`,
-                              `${container.service} 日志`,
+                            onExecuteCommand(
+                              `docker compose logs --tail=200 ${container.service}`,
                             )
                           }
                         >
@@ -702,10 +711,7 @@ export function ContainersPanel({ project, onAction }: PanelCommonProps) {
                           type="button"
                           className="mini-button"
                           onClick={() =>
-                            onAction(
-                              `php admin app:${project.name} dc:restart:${container.service}`,
-                              `重启 ${container.service}`,
-                            )
+                            onExecuteCommand(`docker compose restart ${container.service}`)
                           }
                         >
                           重启
