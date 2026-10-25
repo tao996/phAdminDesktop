@@ -11,7 +11,7 @@ Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + Type
 - SQLite 工作区、legacy `config:export` 导入、多服务器/多项目 deployment；
 - 本地 / SSH 命令执行、流式输出、取消、run 历史与日志；
 - 容器真实状态、启动/停止/重启/日志；
-- 多步骤部署：legacy upgrade → compose up → Nginx reload → 可选重启 PHP → HTTP 健康检查；原生部署模式已跑通本地与 vbox 真实 Phalcon 项目（HTTP 200）；
+- 多步骤部署：legacy upgrade → compose up → Nginx reload → 可选重启 PHP → HTTP 健康检查；原生部署模式已跑通本地与 vbox 真实 Phalcon 项目，失败自动恢复配置备份；
 - 原生同步：git / bundle / ftp，本地与 SSH，同步项级锁；
 - “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
 - 配置预览与生成：`.env` / `nginx.conf` / `docker-compose.yaml` / `config.php`；

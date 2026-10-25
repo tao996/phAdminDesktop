@@ -181,6 +181,6 @@
 - [x] 原生部署 vbox 全链路回归
 - [x] 真实 Phalcon 项目原生部署回归（本地 Docker，HTTP 200）
 - [x] 真实 Phalcon 项目 vbox 远程原生部署（5.23 镜像，HTTP 200）
-- [x] 部署后 HTTP 健康检查（curl 本地 nginx 端口）
-- [x] 原生部署失败自动恢复配置备份
+- [x] 部署后 HTTP 健康检查（curl 本地 nginx 端口；vbox 失败场景实测）
+- [x] 原生部署失败自动恢复配置备份（vbox 实测）
 - [ ] PHP 回退验收
