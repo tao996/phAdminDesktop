@@ -8,6 +8,7 @@ import {
   renderComposePreview,
   writeGeneratedConfig,
   openGeneratedDir,
+  applyGeneratedConfig,
   generatedConfigStatus,
   type GeneratedFiles,
   type GeneratedStatus,
@@ -49,6 +50,7 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [generated, setGenerated] = useState<GeneratedFiles | null>(null);
   const [generatedStatus, setGeneratedStatus] = useState<GeneratedStatus | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   const refreshStatus = () => {
     if (!canUseTauri()) return;
@@ -81,6 +83,25 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
         : active === "rendered-compose"
           ? renderedCompose
           : null;
+
+  const applyRemote = async () => {
+    if (
+      !window.confirm(
+        "将把 .env / nginx.conf / docker-compose.yaml 上传到远程部署目录，并先备份现有文件。继续？",
+      )
+    ) {
+      return;
+    }
+    setApplying(true);
+    try {
+      await applyGeneratedConfig(project.id, true);
+      refreshStatus();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setApplying(false);
+    }
+  };
 
   useEffect(() => {
     if (!canUseTauri()) return;
@@ -224,6 +245,16 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                     {generating ? "生成中…" : "写入本地生成目录"}
                   </button>
                   {generated && <code>{generated.directory}</code>}
+                  {generatedStatus?.exists && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      disabled={applying}
+                      onClick={() => void applyRemote()}
+                    >
+                      {applying ? "上传中…" : "上传到远程"}
+                    </button>
+                  )}
                   {generatedStatus?.exists && (
                     <button
                       type="button"

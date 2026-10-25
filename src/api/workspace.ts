@@ -278,3 +278,10 @@ export async function writeGeneratedConfig(
 export async function openGeneratedDir(deploymentId: string): Promise<void> {
   return invoke<void>("open_generated_dir", { deploymentId });
 }
+
+export async function applyGeneratedConfig(
+  deploymentId: string,
+  backup: boolean,
+): Promise<string> {
+  return invoke<string>("apply_generated_config", { deploymentId, backup });
+}

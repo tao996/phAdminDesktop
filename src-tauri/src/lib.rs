@@ -1,4 +1,5 @@
 mod commands;
+mod config_apply;
 mod db;
 mod deploy;
 mod legacy;
@@ -48,6 +49,7 @@ pub fn run() {
             render::write_generated_config,
             render::generated_config_status,
             render::open_generated_dir,
+            config_apply::apply_generated_config,
             commands::import_legacy_config,
             commands::list_runs,
             commands::list_deploy_runs,
