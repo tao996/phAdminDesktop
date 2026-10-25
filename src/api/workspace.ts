@@ -332,3 +332,7 @@ export async function pruneConfigBackups(
 ): Promise<number> {
   return invoke<number>("prune_config_backups", { deploymentId, keep });
 }
+
+export async function prepareRuntimeAssets(deploymentId: string): Promise<string> {
+  return invoke<string>("prepare_runtime_assets", { deploymentId });
+}

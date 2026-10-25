@@ -38,6 +38,7 @@ import {
   startDeploy,
   applyGeneratedConfig,
   writeGeneratedConfig,
+  prepareRuntimeAssets,
   syncBundleItem,
   syncFtpItem,
   syncGitItem,
@@ -386,6 +387,7 @@ function App() {
       if (native) {
         appendLine(projectId, "info", "原生部署：先执行同步全部与配置上传");
         await handleSyncAllItems();
+        await prepareRuntimeAssets(projectId);
         await writeGeneratedConfig(projectId);
         await applyGeneratedConfig(projectId, true);
         appendLine(projectId, "info", "原生部署：配置已上传，启动容器编排");

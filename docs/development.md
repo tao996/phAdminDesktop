@@ -231,6 +231,8 @@ Phase 1 已完成：
 - “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
 - “原生部署（实验）”：前端 preflight 同步全部 + 生成/上传配置，后端只执行 compose up / nginx reload / 可选重启 PHP，跳过 legacy upgrade；
 - 原生部署 vbox 全链路已跑通（compose up + nginx reload + 容器健康）；
+- 原生部署 preflight 会从示例补齐 docker/nginx/php/mysql 运行配置与日志目录；
+- 真实 Phalcon 项目在本地 Docker 原生部署成功，HTTP 200；
 - `.env` 密码取自 `env_vars` 的 MYSQL_PASSWORD / REDIS_PASSWORD；
 - SSH 远程命令统一作为单个 shell 字符串传递，修复 `cd` 未生效导致 compose 找不到配置文件的问题。
 - 部署历史展示最近 deploy_runs；Deploy 面板展示真实计划；

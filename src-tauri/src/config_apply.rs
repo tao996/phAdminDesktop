@@ -278,6 +278,71 @@ pub fn restore_config_backup(
 }
 
 #[tauri::command]
+pub fn prepare_runtime_assets(
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<String, String> {
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    runner::ensure_target_dir(&target, &target.remote_path)?;
+    let mut transcript = String::new();
+
+    if target.kind == "filesystem" {
+        let root = Path::new(target.remote_path.trim_end_matches(['/', '\\']));
+        let pairs = [
+            (
+                "docker/nginx/sites/default.example.conf",
+                "docker/nginx/sites/default.conf",
+            ),
+            ("docker/php/php.prod.ini", "docker/php/php.ini"),
+            ("docker/mysql/my.example.cnf", "docker/mysql/my.cnf"),
+        ];
+        for (source, destination) in pairs {
+            let source = root.join(source);
+            let destination = root.join(destination);
+            if !destination.exists() && source.is_file() {
+                if let Some(parent) = destination.parent() {
+                    fs::create_dir_all(parent).map_err(|error| format!("创建目录失败: {error}"))?;
+                }
+                fs::copy(&source, &destination)
+                    .map_err(|error| format!("复制 {} 失败: {error}", source.display()))?;
+                transcript.push_str(&format!(
+                    "copy {} -> {}\n",
+                    source.display(),
+                    destination.display()
+                ));
+            }
+        }
+        for directory in [
+            "docker/log/nginx",
+            "docker/log/php",
+            "docker/log/mysql",
+            "src/storage",
+        ] {
+            fs::create_dir_all(root.join(directory))
+                .map_err(|error| format!("创建 {directory} 失败: {error}"))?;
+        }
+    } else {
+        let root = shell_quote(target.remote_path.trim());
+        let script = format!(
+            "set -e\ncd {root}\n[ -f docker/nginx/sites/default.conf ] || cp docker/nginx/sites/default.example.conf docker/nginx/sites/default.conf 2>/dev/null || true\n[ -f docker/php/php.ini ] || cp docker/php/php.prod.ini docker/php/php.ini 2>/dev/null || true\n[ -f docker/mysql/my.cnf ] || cp docker/mysql/my.example.cnf docker/mysql/my.cnf 2>/dev/null || true\nmkdir -p docker/log/nginx docker/log/php docker/log/mysql src/storage\n"
+        );
+        let (success, output) =
+            runner::capture_target_command(&target, "sh", &["-lc".to_string(), script])?;
+        if !success {
+            return Err(format!("准备运行目录失败: {}", output.trim()));
+        }
+        transcript.push_str(&output);
+    }
+    Ok(transcript)
+}
+
+#[tauri::command]
 pub fn prune_config_backups(
     state: State<'_, AppState>,
     deployment_id: String,
