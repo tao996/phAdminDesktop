@@ -1,4 +1,5 @@
 use std::fs;
+use std::process::Command;
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -250,6 +251,41 @@ pub fn generated_config_status(
 #[tauri::command]
 pub fn render_compose_preview() -> String {
     COMPOSE_TEMPLATE.to_string()
+}
+
+#[tauri::command]
+pub fn open_generated_dir(app: AppHandle, deployment_id: String) -> Result<(), String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("获取数据目录失败: {error}"))?
+        .join("generated")
+        .join(&deployment_id);
+    if !directory.exists() {
+        return Err("生成目录不存在，请先生成配置".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(&directory)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {error}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&directory)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {error}"))?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open")
+            .arg(&directory)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {error}"))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

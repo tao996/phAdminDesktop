@@ -274,3 +274,7 @@ export async function writeGeneratedConfig(
 ): Promise<GeneratedFiles> {
   return invoke<GeneratedFiles>("write_generated_config", { deploymentId });
 }
+
+export async function openGeneratedDir(deploymentId: string): Promise<void> {
+  return invoke<void>("open_generated_dir", { deploymentId });
+}

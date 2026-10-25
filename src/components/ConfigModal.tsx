@@ -7,6 +7,7 @@ import {
   renderNginxPreview,
   renderComposePreview,
   writeGeneratedConfig,
+  openGeneratedDir,
   generatedConfigStatus,
   type GeneratedFiles,
   type GeneratedStatus,
@@ -214,6 +215,15 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                     {generating ? "生成中…" : "写入本地生成目录"}
                   </button>
                   {generated && <code>{generated.directory}</code>}
+                  {generatedStatus?.exists && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      onClick={() => void openGeneratedDir(project.id)}
+                    >
+                      打开目录
+                    </button>
+                  )}
                   {generatedStatus && (
                     <span className="tag">
                       {!generatedStatus.exists
