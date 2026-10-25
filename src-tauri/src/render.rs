@@ -6,6 +6,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::AppState;
 
 const ENV_TEMPLATE: &str = include_str!("../templates/env.example");
+const COMPOSE_TEMPLATE: &str = include_str!("../templates/docker-compose.yaml");
 
 pub(crate) fn render_env(project: &str, remote_path: &str, nginx_port: i64) -> String {
     ENV_TEMPLATE
@@ -157,6 +158,12 @@ pub struct GeneratedFiles {
     pub directory: String,
     pub env_path: String,
     pub nginx_path: String,
+    pub compose_path: String,
+}
+
+#[tauri::command]
+pub fn render_compose_preview() -> String {
+    COMPOSE_TEMPLATE.to_string()
 }
 
 #[tauri::command]
@@ -214,15 +221,19 @@ pub fn write_generated_config(
     fs::create_dir_all(&directory).map_err(|error| format!("创建生成目录失败: {error}"))?;
     let env_path = directory.join(".env");
     let nginx_path = directory.join("nginx.conf");
+    let compose_path = directory.join("docker-compose.yaml");
     fs::write(&env_path, render_env(&project, &remote_path, nginx_port))
         .map_err(|error| format!("写入 .env 失败: {error}"))?;
     fs::write(&nginx_path, render_nginx(&domains, nginx_port, ssl != 0))
         .map_err(|error| format!("写入 nginx.conf 失败: {error}"))?;
+    fs::write(&compose_path, COMPOSE_TEMPLATE)
+        .map_err(|error| format!("写入 docker-compose.yaml 失败: {error}"))?;
 
     Ok(GeneratedFiles {
         directory: directory.to_string_lossy().to_string(),
         env_path: env_path.to_string_lossy().to_string(),
         nginx_path: nginx_path.to_string_lossy().to_string(),
+        compose_path: compose_path.to_string_lossy().to_string(),
     })
 }
 
@@ -247,5 +258,13 @@ mod tests {
         assert!(nginx.contains("proxy_pass http://127.0.0.1:8071;"));
         assert!(nginx.contains("listen 443 ssl http2;"));
         assert!(nginx.contains("/etc/nginx/ssl/demo.example.com.pem"));
+    }
+
+    #[test]
+    fn compose_template_has_expected_services() {
+        assert!(COMPOSE_TEMPLATE.contains("nginx:"));
+        assert!(COMPOSE_TEMPLATE.contains("php:"));
+        assert!(COMPOSE_TEMPLATE.contains("mysql:"));
+        assert!(COMPOSE_TEMPLATE.contains("redis:"));
     }
 }

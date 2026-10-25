@@ -224,6 +224,11 @@ export interface GeneratedFiles {
   directory: string;
   envPath: string;
   nginxPath: string;
+  composePath: string;
+}
+
+export async function renderComposePreview(): Promise<string> {
+  return invoke<string>("render_compose_preview");
 }
 
 export async function writeGeneratedConfig(

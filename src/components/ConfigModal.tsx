@@ -5,6 +5,7 @@ import {
   loadDeploymentConfig,
   renderConfigPreview,
   renderNginxPreview,
+  renderComposePreview,
   writeGeneratedConfig,
   type GeneratedFiles,
   type DeploymentConfig,
@@ -41,6 +42,7 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [loading, setLoading] = useState(false);
   const [renderedEnv, setRenderedEnv] = useState<string | null>(null);
   const [renderedNginx, setRenderedNginx] = useState<string | null>(null);
+  const [renderedCompose, setRenderedCompose] = useState<string | null>(null);
   const [generated, setGenerated] = useState<GeneratedFiles | null>(null);
   const [generating, setGenerating] = useState(false);
 
@@ -71,6 +73,13 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
       })
       .catch(() => {
         if (!cancelled) setRenderedNginx(null);
+      });
+    void renderComposePreview()
+      .then((value) => {
+        if (!cancelled) setRenderedCompose(value);
+      })
+      .catch(() => {
+        if (!cancelled) setRenderedCompose(null);
       });
     return () => {
       cancelled = true;
@@ -169,8 +178,17 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                 >
                   rendered nginx
                 </button>
+                <button
+                  type="button"
+                  className={active === "rendered-compose" ? "active" : ""}
+                  onClick={() => setActive("rendered-compose")}
+                >
+                  rendered compose
+                </button>
               </div>
-              {(active === "rendered" || active === "rendered-nginx") && (
+              {(active === "rendered" ||
+                active === "rendered-nginx" ||
+                active === "rendered-compose") && (
                 <div className="config-generate-row">
                   <button
                     type="button"
@@ -190,6 +208,10 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
               ) : active === "rendered-nginx" ? (
                 <pre className="config-json">
                   {renderedNginx ?? "（生成器暂不可用）"}
+                </pre>
+              ) : active === "rendered-compose" ? (
+                <pre className="config-json">
+                  {renderedCompose ?? "（生成器暂不可用）"}
                 </pre>
               ) : active === "sync" ? (
                 config.syncItems.length === 0 ? (

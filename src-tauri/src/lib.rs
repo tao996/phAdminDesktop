@@ -44,6 +44,7 @@ pub fn run() {
             commands::sync_ftp_item,
             render::render_config_preview,
             render::render_nginx_preview,
+            render::render_compose_preview,
             render::write_generated_config,
             commands::import_legacy_config,
             commands::list_runs,

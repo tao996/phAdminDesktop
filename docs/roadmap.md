@@ -167,6 +167,6 @@
 - [x] 部署配置只读预览（sync items + JSON）
 - [x] ftp / SFTP 基础同步（本地复制 / scp -r）
 - [x] `.env` / Nginx 渲染预览
-- [x] 本地 generated 目录写入
-- [ ] 远程配置写入 / docker-compose 生成
+- [x] 本地 generated 目录写入（.env / nginx / compose）
+- [ ] 远程配置写入
 - [ ] PHP 回退验收
