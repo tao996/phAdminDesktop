@@ -293,7 +293,7 @@ SQLite
 - Deploy 面板增加“同步全部”：按 sync_items 顺序执行 git / bundle / ftp，git 等待 run 结束；
 - Deploy 面板增加“原生部署（实验）”：先同步全部并上传配置，再走 compose up / nginx reload / 可选重启 PHP，跳过 `php admin upgrade`；legacy 模式保留为回退；
 - 原生部署 preflight 增加 `prepare_runtime_assets`：从 legacy 示例补齐 `docker/nginx/sites/default.conf`、`docker/php/php.ini`、`docker/mysql/my.cnf` 并创建日志/存储目录；
-- 原生部署已用真实 Phalcon 项目在本地 Docker 与 vbox 远程跑通；vbox 测试用 5.13 镜像临时标记为 5.23，compose/nginx 均成功；
+- 原生部署已用真实 Phalcon 项目在本地 Docker 与 vbox 远程跑通；vbox 使用真实 5.23 镜像返回 HTTP 200；
 - `.env` 的 MYSQL_PASSWORD / REDIS_PASSWORD 从 `env_vars` 读取，避免生成空密码导致容器启动失败；
 - Deploy 面板通过 `preview_deploy_plan` 展示真实部署步骤与命令；
 - 「预览配置」打开只读 ConfigModal，查看 sync_items 与 config/hooks/docker/router/nginx JSON；

@@ -180,5 +180,5 @@
 - [x] 原生部署模式（实验）：同步全部 + 配置上传 + compose/nginx/restart
 - [x] 原生部署 vbox 全链路回归
 - [x] 真实 Phalcon 项目原生部署回归（本地 Docker，HTTP 200）
-- [x] 真实 Phalcon 项目 vbox 远程原生部署（compose + nginx；镜像替换测试）
+- [x] 真实 Phalcon 项目 vbox 远程原生部署（5.23 镜像，HTTP 200）
 - [ ] PHP 回退验收
