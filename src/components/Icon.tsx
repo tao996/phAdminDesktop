@@ -34,7 +34,9 @@ export type IconName =
   | "zap"
   | "sliders"
   | "wifi"
-  | "wifi-off";
+  | "wifi-off"
+  | "eye"
+  | "eye-off";
 
 interface IconProps {
   name: IconName;
@@ -222,6 +224,21 @@ function paths(name: IconName): ReactNode {
       return (
         <>
           <path d="m2 2 20 20M8.5 16a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 4-2.3M15 10.2a10 10 0 0 1 4 2.3M12 19.5h.01" />
+        </>
+      );
+    case "eye":
+      return (
+        <>
+          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      );
+    case "eye-off":
+      return (
+        <>
+          <path d="m2 2 20 20" />
+          <path d="M6.7 6.7C3.7 8.6 2 12 2 12s3.5 6 10 6c1.7 0 3.2-.5 4.5-1.2M9.9 5.2A11 11 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-2.2 3.2" />
+          <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
         </>
       );
   }

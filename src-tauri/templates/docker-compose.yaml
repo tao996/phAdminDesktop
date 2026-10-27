@@ -1,9 +1,11 @@
 version: '3.5'
 
-# 统一模板：nginx 绑定 127.0.0.1，由宿主机 nginx 反向代理（Docker Router 模式下该映射冗余但无害）
+# 统一模板：所有服务接入服务器配置的共享外部网络（docker.network）
+# 这样不同项目的容器可以互相访问（例如共享 mysql/redis）。
 networks:
   backend:
-    driver: bridge
+    external: true
+    name: ${DOCKER_NETWORK:-phalcon-shared}
 
 services:
   nginx:

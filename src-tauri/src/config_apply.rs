@@ -10,6 +10,15 @@ use tauri::{AppHandle, Manager, State};
 
 const FILES: &[&str] = &[".env", "nginx.conf", "docker-compose.yaml", "config.php"];
 
+/// 生成目录里的文件名 → 项目内目标路径。
+fn remote_relative(file: &str) -> &str {
+    if file == "config.php" {
+        "src/config/config.php"
+    } else {
+        file
+    }
+}
+
 fn backup_existing(target: &Target, destination: &str, millis: u128) -> Result<(), String> {
     if target.kind == "filesystem" {
         let path = Path::new(destination);
@@ -64,6 +73,16 @@ pub fn apply_generated_config(
             return Err(format!("缺少生成文件 {}，请先生成本地配置", path.display()));
         }
     }
+    for relative in [
+        "docker/mysql/my.cnf",
+        "docker/nginx/sites/default.conf",
+        "docker/php/php.ini",
+    ] {
+        let path = source_dir.join(relative);
+        if !path.is_file() {
+            return Err(format!("缺少生成文件 {}，请先生成本地配置", path.display()));
+        }
+    }
 
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -73,14 +92,18 @@ pub fn apply_generated_config(
 
     let mut transcript = String::new();
     for file in FILES {
+        let relative = remote_relative(file);
         let destination = if target.kind == "filesystem" {
             PathBuf::from(target.remote_path.trim_end_matches(['/', '\\']))
-                .join(file)
+                .join(relative)
                 .to_string_lossy()
                 .to_string()
         } else {
-            format!("{}/{}", target.remote_path.trim_end_matches('/'), file)
+            format!("{}/{}", target.remote_path.trim_end_matches('/'), relative)
         };
+        if let Some(parent) = Path::new(&destination).parent() {
+            runner::ensure_target_dir(&target, &parent.to_string_lossy())?;
+        }
         if backup {
             backup_existing(&target, &destination, millis)?;
         }
@@ -102,6 +125,71 @@ pub fn apply_generated_config(
             file, target.host, destination, file
         ));
     }
+
+    // 容器运行配置：模板渲染后按项目内路径上传。
+    for relative in [
+        "docker/mysql/my.cnf",
+        "docker/nginx/sites/default.conf",
+        "docker/php/php.ini",
+    ] {
+        let source = source_dir.join(relative);
+        if !source.is_file() {
+            return Err(format!(
+                "缺少生成文件 {}，请先生成本地配置",
+                source.display()
+            ));
+        }
+        let destination = if target.kind == "filesystem" {
+            PathBuf::from(target.remote_path.trim_end_matches(['/', '\\']))
+                .join(relative)
+                .to_string_lossy()
+                .to_string()
+        } else {
+            format!("{}/{}", target.remote_path.trim_end_matches('/'), relative)
+        };
+        if let Some(parent) = Path::new(&destination).parent() {
+            runner::ensure_target_dir(&target, &parent.to_string_lossy())?;
+        }
+        if backup {
+            backup_existing(&target, &destination, millis)?;
+        }
+        runner::upload_to_target(&target, &source, &destination)?;
+        transcript.push_str(&format!(
+            "$ upload {} -> {}:{}\n",
+            relative, target.host, destination
+        ));
+    }
+
+    // 自定义模板：write_generated_config 写入清单，按路径原样上传。
+    if let Ok(manifest) = fs::read_to_string(source_dir.join("template-manifest.json")) {
+        let paths: Vec<String> = serde_json::from_str(&manifest).unwrap_or_default();
+        for relative in &paths {
+            let source = source_dir.join(relative);
+            if !source.is_file() {
+                return Err(format!(
+                    "缺少生成文件 {}，请先生成本地配置",
+                    source.display()
+                ));
+            }
+            let destination = if target.kind == "filesystem" {
+                PathBuf::from(target.remote_path.trim_end_matches(['/', '\\']))
+                    .join(relative)
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                format!("{}/{}", target.remote_path.trim_end_matches('/'), relative)
+            };
+            if let Some(parent) = Path::new(&destination).parent() {
+                runner::ensure_target_dir(&target, &parent.to_string_lossy())?;
+            }
+            runner::upload_to_target(&target, &source, &destination)?;
+            transcript.push_str(&format!(
+                "$ upload {} -> {}:{}\n",
+                relative, target.host, destination
+            ));
+        }
+    }
+
     Ok(transcript)
 }
 
@@ -137,13 +225,14 @@ pub fn remote_config_status(
     for file in FILES {
         let local_path = source_dir.join(file);
         let local = fs::read_to_string(&local_path).unwrap_or_default();
+        let relative = remote_relative(file);
         let destination = if target.kind == "filesystem" {
             PathBuf::from(target.remote_path.trim_end_matches(['/', '\\']))
-                .join(file)
+                .join(relative)
                 .to_string_lossy()
                 .to_string()
         } else {
-            format!("{}/{}", target.remote_path.trim_end_matches('/'), file)
+            format!("{}/{}", target.remote_path.trim_end_matches('/'), relative)
         };
 
         let remote = if target.kind == "filesystem" {

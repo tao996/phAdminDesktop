@@ -1,154 +1,355 @@
-import { useRef, useState } from "react";
-import type { Project, Server } from "../data/mock";
-import type { ImportSummary } from "../api/workspace";
+import { useEffect, useState } from "react";
+import {
+  countServerReferences,
+  getLocalRepoPath,
+  getServerConfig,
+  setLocalRepoPath,
+  type ServerInput,
+} from "../api/workspace";
 import { Icon } from "./Icon";
 
-interface AddProjectModalProps {
-  servers: Server[];
-  serverId: string;
-  existingNames: string[];
+interface ServerModalProps {
+  /** 传入 id 表示修改已有服务器，否则为新增。 */
+  serverId?: string;
+  serverName?: string;
   onClose: () => void;
-  onCreate: (project: Project) => void;
+  onSave: (input: ServerInput) => Promise<void>;
+  onDelete?: () => Promise<void>;
 }
 
-export function AddProjectModal({
-  servers,
+export function ServerModal({
   serverId,
-  existingNames,
+  serverName,
   onClose,
-  onCreate,
-}: AddProjectModalProps) {
-  const [name, setName] = useState("");
-  const [title, setTitle] = useState("");
-  const [path, setPath] = useState("/data/");
-  const [domain, setDomain] = useState("");
-  const [port, setPort] = useState("8076");
-  const [targetServer, setTargetServer] = useState(serverId);
-  const [error, setError] = useState("");
+  onSave,
+  onDelete,
+}: ServerModalProps) {
+  const editing = Boolean(serverId);
+  const [name, setName] = useState(serverName ?? "");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("22");
+  const [user, setUser] = useState("root");
+  const [auth, setAuth] = useState<"password" | "key">("password");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [keyFile, setKeyFile] = useState("");
+  const [keyPassphrase, setKeyPassphrase] = useState("");
+  const [dockerNetwork, setDockerNetwork] = useState("phalcon-shared");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [referenceCount, setReferenceCount] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(editing);
 
-  const submit = (event: React.FormEvent) => {
+  const requestDelete = async () => {
+    if (!serverId) return;
+    setConfirming(true);
+    setReferenceCount(null);
+    setDeleteError(null);
+    try {
+      setReferenceCount(await countServerReferences(serverId));
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!onDelete) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDelete();
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : String(reason));
+      setDeleting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!serverId) return;
+    let cancelled = false;
+    void getServerConfig(serverId)
+      .then((config) => {
+        if (cancelled) return;
+        setName(config.name);
+        setHost(config.host);
+        setPort(String(config.port));
+        setUser(config.user);
+        setPassword(config.password);
+        setKeyFile(config.keyFile);
+        setKeyPassphrase(config.keyPassphrase);
+        setDockerNetwork(config.dockerNetwork || "phalcon-shared");
+        setAuth(config.keyFile ? "key" : "password");
+        setLoading(false);
+      })
+      .catch((reason: unknown) => {
+        if (cancelled) return;
+        setError(reason instanceof Error ? reason.message : String(reason));
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverId]);
+
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const safeName = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-    if (!safeName) {
-      setError("项目名不能为空，且仅允许字母、数字、下划线、短横线。");
+    if (!name.trim()) {
+      setError("请填写服务器名称（用于项目列表显示）");
       return;
     }
-    if (existingNames.includes(safeName)) {
-      setError("项目名已存在，请换一个。");
+    if (!host.trim()) {
+      setError("请填写主机（IP 或域名）");
       return;
     }
-    onCreate({
-      id: `${targetServer}-${safeName}`,
-      serverId: targetServer,
-      name: safeName,
-      title: title.trim() || safeName,
-      path: path.trim() || `/data/${safeName}`,
-      domain: domain.trim() || `${safeName}.local`,
-      port: Number(port) || 8076,
-      branch: "main",
-      status: "not-deployed",
-      ssl: false,
-      lastDeploy: "从未",
-      backups: 0,
-      phpVersion: "PHP 8.5.12",
-      containers: [],
-    });
+    if (!user.trim()) {
+      setError("请填写 SSH 用户");
+      return;
+    }
+    if (auth === "password" && !password) {
+      setError("请填写 SSH 密码");
+      return;
+    }
+    if (auth === "key" && !keyFile.trim()) {
+      setError("请填写私钥路径");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({
+        name: name.trim(),
+        host: host.trim(),
+        port: Number(port) || 22,
+        user: user.trim(),
+        password: auth === "password" ? password : "",
+        keyFile: auth === "key" ? keyFile.trim() : "",
+        keyPassphrase: auth === "key" ? keyPassphrase : "",
+        dockerNetwork: dockerNetwork.trim() || "phalcon-shared",
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <div>
-            <span className="section-kicker">New Deployment</span>
-            <h2>添加项目</h2>
+            <span className="section-kicker">{editing ? "Edit Server" : "New Server"}</span>
+            <h2>{editing ? "修改服务器" : "添加服务器"}</h2>
           </div>
           <button type="button" className="icon-button subtle" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={16} />
           </button>
         </div>
 
-        <form onSubmit={submit} autoComplete="off">
-          <div className="form-grid">
+        <form onSubmit={(event) => void submit(event)} autoComplete="off">
+          <div className="form-grid server-form-grid">
             <label className="field">
-              <span>项目名</span>
+              <span>名称</span>
               <input
-                className="input"
+                className="input mono"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="boyu"
-                autoComplete="off"
+                placeholder="如 vbox / production"
                 autoFocus
               />
             </label>
             <label className="field">
-              <span>显示名称</span>
-              <input
-                className="input"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="博与科技"
-              />
-            </label>
-            <label className="field">
-              <span>目标服务器</span>
-              <select
-                className="form-select"
-                value={targetServer}
-                onChange={(event) => setTargetServer(event.target.value)}
-              >
-                {servers.map((server) => (
-                  <option key={server.id} value={server.id}>
-                    {server.name} · {server.host}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>远程路径</span>
+              <span>主机</span>
               <input
                 className="input mono"
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-                placeholder="/data/phalcon-admin"
+                value={host}
+                onChange={(event) => setHost(event.target.value)}
+                placeholder="10.0.0.5 或 domain"
               />
             </label>
             <label className="field">
-              <span>域名</span>
-              <input
-                className="input mono"
-                value={domain}
-                onChange={(event) => setDomain(event.target.value)}
-                placeholder="gu19.cn"
-              />
-            </label>
-            <label className="field">
-              <span>Nginx 端口</span>
+              <span>端口</span>
               <input
                 className="input mono"
                 value={port}
                 onChange={(event) => setPort(event.target.value)}
-                placeholder="8071"
+                placeholder="22"
+              />
+            </label>
+            <label className="field">
+              <span>用户</span>
+              <input
+                className="input mono"
+                value={user}
+                onChange={(event) => setUser(event.target.value)}
+                placeholder="root"
+              />
+            </label>
+            <label className="field">
+              <span>认证方式</span>
+              <select
+                className="form-select"
+                value={auth}
+                onChange={(event) => setAuth(event.target.value as "password" | "key")}
+              >
+                <option value="password">密码</option>
+                <option value="key">私钥</option>
+              </select>
+            </label>
+
+            {auth === "password" ? (
+              <label className="field">
+                <span>密码</span>
+                <div className="input-with-suffix">
+                  <input
+                    className="input mono"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="SSH 密码"
+                  />
+                  <button
+                    type="button"
+                    className="input-suffix-button"
+                    aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                    title={showPassword ? "隐藏密码" : "显示密码"}
+                    onClick={() => setShowPassword((value) => !value)}
+                  >
+                    <Icon name={showPassword ? "eye-off" : "eye"} size={14} />
+                  </button>
+                </div>
+              </label>
+            ) : (
+              <>
+                <label className="field">
+                  <span>私钥路径</span>
+                  <input
+                    className="input mono"
+                    value={keyFile}
+                    onChange={(event) => setKeyFile(event.target.value)}
+                    placeholder="C:\\Users\\me\\.ssh\\id_ed25519"
+                  />
+                </label>
+                <label className="field">
+                  <span>私钥口令（可选）</span>
+                  <input
+                    className="input mono"
+                    type="password"
+                    autoComplete="new-password"
+                    value={keyPassphrase}
+                    onChange={(event) => setKeyPassphrase(event.target.value)}
+                    placeholder="加密私钥的 passphrase"
+                  />
+                </label>
+              </>
+            )}
+            <label className="field">
+              <span>共享网络名（docker.network）</span>
+              <input
+                className="input mono"
+                value={dockerNetwork}
+                onChange={(event) => setDockerNetwork(event.target.value)}
+                placeholder="phalcon-shared"
               />
             </label>
           </div>
 
+          {loading && <div className="muted-caption">正在读取服务器配置…</div>}
           {error && <div className="form-error">{error}</div>}
 
           <div className="modal-footer">
-            <span className="muted-caption">当前为 UI 预览，只创建内存记录。</span>
+            <span className="muted-caption">
+              名称用于项目列表展示；密码 / 私钥口令保存在本地 SQLite。
+            </span>
             <div className="heading-actions">
+              {editing && onDelete && (
+                <button
+                  type="button"
+                  className="button danger"
+                  onClick={() => void requestDelete()}
+                  disabled={deleting || saving || loading}
+                >
+                  删除
+                </button>
+              )}
               <button type="button" className="button secondary" onClick={onClose}>
                 取消
               </button>
-              <button type="submit" className="button primary">
-                <Icon name="plus" size={14} />
-                创建项目
+              <button
+                type="submit"
+                className="button primary"
+                disabled={saving || loading || deleting}
+              >
+                {saving ? "保存中…" : editing ? "保存" : "添加"}
               </button>
             </div>
           </div>
         </form>
       </div>
+
+      {confirming && (
+        <div
+          className="confirm-layer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="删除服务器确认"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="confirm-card">
+            <div className="confirm-header">
+              <Icon name="trash" size={16} />
+              <h3>删除服务器</h3>
+            </div>
+            <p className="confirm-text">
+              确定删除 <strong>{serverName ?? serverId}</strong>？删除后不可恢复。
+            </p>
+
+            {referenceCount === null && !deleteError && (
+              <p className="muted-caption">正在检查引用…</p>
+            )}
+            {referenceCount !== null && referenceCount > 0 && (
+              <div className="form-error">
+                该服务器仍被 {referenceCount} 个部署引用，不能删除。
+              </div>
+            )}
+            {deleteError && <div className="form-error">{deleteError}</div>}
+
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setConfirming(false)}
+                disabled={deleting}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => void confirmDelete()}
+                disabled={
+                  deleting ||
+                  referenceCount === null ||
+                  referenceCount > 0 ||
+                  Boolean(deleteError)
+                }
+              >
+                {deleting ? "删除中…" : "确定"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -232,37 +433,40 @@ export function CommandPalette({ open, commands, onClose, onRun }: CommandPalett
 
 interface SettingsModalProps {
   onClose: () => void;
-  onImportLegacy: (json: string) => Promise<ImportSummary>;
+  onOpenDataDir: () => void;
 }
 
-export function SettingsModal({ onClose, onImportLegacy }: SettingsModalProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importing, setImporting] = useState(false);
-  const [importMessage, setImportMessage] = useState<{
-    ok: boolean;
-    text: string;
-  } | null>(null);
+export function SettingsModal({ onClose, onOpenDataDir }: SettingsModalProps) {
+  const [localRepo, setLocalRepo] = useState("");
+  const [repoStatus, setRepoStatus] = useState<string | null>(null);
 
-  const importFile = async (file: File | undefined) => {
-    if (!file) return;
-    setImporting(true);
-    setImportMessage(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getLocalRepoPath()
+      .then((path) => {
+        if (cancelled) return;
+        if (path === null || path.trim() === "") {
+          const fallback = "D:\\demo\\code\\flutter\\library\\projects\\phalcon-admin";
+          setLocalRepo(fallback);
+          void setLocalRepoPath(fallback);
+        } else {
+          setLocalRepo(path);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRepoStatus("读取失败");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveRepo = async () => {
     try {
-      const summary = await onImportLegacy(await file.text());
-      setImportMessage({
-        ok: true,
-        text: `已导入 ${summary.servers} 个服务器、${summary.projects} 个项目、${summary.deployments} 个部署、${summary.syncItems} 个同步项。`,
-      });
-    } catch (error) {
-      setImportMessage({
-        ok: false,
-        text: error instanceof Error ? error.message : "导入失败",
-      });
-    } finally {
-      setImporting(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      await setLocalRepoPath(localRepo.trim());
+      setRepoStatus("已保存");
+    } catch (reason) {
+      setRepoStatus(reason instanceof Error ? reason.message : String(reason));
     }
   };
 
@@ -300,38 +504,35 @@ export function SettingsModal({ onClose, onImportLegacy }: SettingsModalProps) {
               <strong>数据目录</strong>
               <small>SQLite 与运行日志的本地位置</small>
             </div>
-            <code>%APPDATA%/cn.gu19.phadmin.desktop</code>
-          </div>
-          <div className="settings-row settings-row-import">
-            <div>
-              <strong>导入 legacy 配置</strong>
-              <small>选择 php admin config:export 生成的 JSON</small>
-            </div>
-            <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden-file-input"
-                onChange={(event) => void importFile(event.currentTarget.files?.[0])}
-              />
-              <button
-                type="button"
-                className="button secondary small"
-                disabled={importing}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Icon name="download" size={13} />
-                {importing ? "导入中…" : "选择 JSON"}
+            <div className="heading-actions">
+              <code>%APPDATA%/cn.gu19.phadmin.desktop</code>
+              <button type="button" className="button secondary small" onClick={onOpenDataDir}>
+                <Icon name="folder" size={13} />
+                打开目录
               </button>
             </div>
           </div>
-          {importMessage && (
-            <div className={`settings-import-message ${importMessage.ok ? "ok" : "error"}`}>
-              <Icon name={importMessage.ok ? "check" : "alert"} size={13} />
-              {importMessage.text}
+          <div className="settings-row">
+            <div>
+              <strong>本地仓库</strong>
+              <small>代码同步（bundle / ftp）使用的本地源目录</small>
             </div>
-          )}
+            <div className="heading-actions">
+              <input
+                className="input mono settings-repo-input"
+                value={localRepo}
+                onChange={(event) => {
+                  setLocalRepo(event.target.value);
+                  setRepoStatus(null);
+                }}
+                placeholder="D:\\path\\to\\repo"
+              />
+              <button type="button" className="button secondary small" onClick={() => void saveRepo()}>
+                保存
+              </button>
+              {repoStatus && <span className="muted-caption">{repoStatus}</span>}
+            </div>
+          </div>
           <div className="settings-row">
             <div>
               <strong>危险操作确认</strong>
@@ -361,3 +562,5 @@ export function SettingsModal({ onClose, onImportLegacy }: SettingsModalProps) {
     </div>
   );
 }
+
+

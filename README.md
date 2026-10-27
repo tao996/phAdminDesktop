@@ -2,22 +2,24 @@
 
 Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + TypeScript + SQLite 构建。
 
-> 当前状态：原生部署、健康检查、失败配置回滚、git/bundle/ftp 同步、配置生成/上传/备份恢复、数据库 mysqldump 备份/恢复均已实现并验证。完整进度与剩余缺口见 [docs/current-state.md](docs/current-state.md)。
+> 当前状态：`php admin` 的全部功能已原生化，桌面端是唯一执行内核。首次启动为空工作区（不再自动灌演示数据）。完整进度与剩余缺口见 [docs/current-state.md](docs/current-state.md)。
 
 ![项目概览](docs/screenshots/overview.png)
 
 ## 已实现能力
 
-- SQLite 工作区、legacy `config:export` 导入、多服务器/多项目 deployment；
+- SQLite 工作区、多服务器/多项目 deployment；
 - 本地 / SSH 命令执行、流式输出、取消、run 历史与日志；
 - 容器真实状态、启动/停止/重启/日志；
-- 多步骤部署：legacy upgrade → compose up → Nginx reload → 可选重启 PHP → HTTP 健康检查；原生部署模式已跑通本地与 vbox 真实 Phalcon 项目，失败自动恢复配置备份；
+- 部署：同步全部 → 生成并上传配置 → compose up → Nginx reload → 可选重启 PHP → HTTP 健康检查；失败自动恢复配置备份；
 - 原生同步：git / bundle / ftp，本地与 SSH，同步项级锁；
-- “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
 - 配置预览与生成：`.env` / `nginx.conf` / `docker-compose.yaml` / `config.php`；
 - 配置上传后回读校验、`.bak-<millis>` 备份、差异检查、恢复、可配置保留数量清理；
-- Nginx reload / 访问日志接真实 `docker compose exec nginx`；
-- 原生数据库备份：`mysqldump` 到本地；支持本地备份列表与恢复；
+- 宿主机 Nginx：发布 / 移除 / 语法检查并 reload / 访问与错误日志 / 环境检查；
+- SSL：certbot webroot 申请证书、证书链接、切换 HTTPS 配置；
+- 数据库：mysqldump 备份到本地、备份列表、恢复（恢复前自动快照）、结构迁移、seed、服务器 crontab 定时备份；
+- 运维：重置代码、生成部署密钥、SSH 隧道、临时 phpMyAdmin；
+- 密钥：密码类环境变量存 OS 凭据管理器，SQLite 只存引用；
 - 部署计划真实步骤、最近部署历史、配置状态检测。
 
 ## 目标
@@ -26,23 +28,7 @@ Phalcon Admin 的主机侧部署控制台，使用 Tauri 2 + Rust + React + Type
 - 部署 / 升级 / 重置 / Docker / Nginx / 数据库备份 / SSL
 - SQLite 管理配置、部署关系、运行历史
 - 终端流式输出、任务取消、日志归档
-- 最终替代仓库根目录的 `php admin`
-
-`php admin` 在过渡期保留为迁移来源、差分验收 oracle 和应急回退路径。
-
-## 导入 legacy 配置
-
-在 legacy 仓库生成 JSON：
-
-```bash
-php admin config:export
-```
-
-打开应用 → 设置 → 导入 legacy 配置 → 选择 `deploy/.cache/config.json`。
-
-- 导入写入本地 SQLite，不连接服务器；
-- 重复导入按 `(server, project)` 幂等更新；
-- 密码/密钥类 env 只记录“需要密钥”，不写入明文。
+- 已取代仓库根目录的 `php admin`，不再调用 legacy CLI
 
 ## 快速开始
 
@@ -87,16 +73,8 @@ docs/          设计与开发文档
 
 ## Legacy
 
-旧部署工具与配置：
+仓库 `D:\demo\code\flutter\library\projects\phalcon-admin` 仅作历史参考：
 
-```text
-D:\demo\code\flutter\library\projects\phalcon-admin
-```
-
-迁移入口：
-
-```bash
-php admin config:export
-```
-
-在桌面端稳定并完成验收前，不要删除 legacy `deploy`。
+- 桌面端不调用 `php admin`，也不读取 `deploy/projects/*/server.php`；
+- 不再提供配置导入，部署数据直接维护在 SQLite；
+- 旧仓库保留与否不影响桌面端运行。

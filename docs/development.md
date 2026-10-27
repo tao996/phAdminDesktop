@@ -19,7 +19,7 @@
 | macOS | Xcode Command Line Tools |
 | Linux | WebKitGTK、libappindicator 等 Tauri 依赖 |
 
-PHP **不是桌面端运行的必需依赖**。只有使用 legacy `php admin` 回退/导入时才需要。
+PHP **不是桌面端运行的必需依赖**。桌面端不调用 `php admin`；旧仓库仅作历史参考。
 
 ---
 
@@ -135,29 +135,18 @@ phAdminDesktop/
 
 ---
 
-## 6. 与 legacy deploy 协作
+## 6. 与旧 `php admin` 仓库的关系
 
-legacy 仓库（本机）：
+旧仓库（本机，仅历史参考）：
 
 ```text
 D:\demo\code\flutter\library\projects\phalcon-admin
 ```
 
-当前可用的迁移入口：
-
-```bash
-cd D:\demo\code\flutter\library\projects\phalcon-admin
-php admin config:export
-```
-
-输出 `deploy/.cache/config.json`，桌面端导入后映射为 SQLite。
-
-规则：
-
-- **只读导入**：不要修改 legacy 仓库的 `server.php`/`projects/*`；
-- **单向导出**：需要回退时，导出到桌面端 `exports/`，不写回 legacy；
-- **不双向同步**：检测到 legacy 文件变化时提示重新导入；
-- **不要删除 legacy**：直到 desktop 稳定并完成验收。
+- 桌面端不导入它的配置、不调用它的命令、不读取 `deploy/projects/*`；
+- deployment / sync items / env vars 直接在 SQLite 中维护；
+- 终端白名单不含 `php`；
+- 需要回滚桌面端变更时，用 SQLite 备份与 `generated/` 目录，而不是旧 CLI。
 
 ---
 
@@ -215,7 +204,7 @@ Phase 1 已完成：
 - SQLite `servers/projects/deployments` 三表 + 启动 seed；
 - `load_workspace` 只读 command；
 - UI 的服务器/项目/部署从 SQLite 加载；
-- legacy `config:export` JSON 导入（设置 → 导入 legacy 配置）；
+- 旧 CLI 导入已移除，deployment 直接维护在 SQLite；
 - `domains/env_vars/sync_items/deployment_settings/runs` 表；
 - `run_command` 基础执行：本地 filesystem / 系统 `ssh`，stdout/stderr 事件 + `runs` 落库；
 - `list_runs` 任务历史 + `cancel_run`；终端「任务」面板；
@@ -224,23 +213,23 @@ Phase 1 已完成：
 - 容器启动/停止/重启/日志已接入真实命令；
 - Overview 容器统计使用 `get_containers`，最近活动使用 `list_runs`；
 - 终端支持白名单命令（argv 解析，不经过 shell）；
-- Deploy 面板「开始升级」调用 `start_deploy`，按步骤执行升级 → compose up → Nginx reload → 可选重启 PHP；
+- Deploy 面板「开始部署」调用完整原生流程：同步全部 → 生成/上传配置 → compose up → Nginx reload → 可选重启 PHP；
 - 任一步失败中止；同一 deployment 禁止并发部署；步骤 run 关联 `deploy_runs`；
 - 同步项级锁防止重复执行；ftp 锁在查询失败时不会残留；
 - 配置预览：.env / nginx / compose / config.php；本地 generated 写入与状态检测；
 - 配置上传：逐文件回读校验，覆盖前 `.bak-<millis>`；支持备份列表、恢复、可配置保留数量清理；
-- 模板 `env.example` / `docker-compose.yaml` / `config.php.template` 与 legacy 逐行对齐；
+- 模板 `env.example` / `docker-compose.yaml` / `config.php.template` 为唯一事实源；
 - “同步全部”按 sync_items 顺序执行，git 等待 run，失败中止；
-- “原生部署（实验）”：前端 preflight 同步全部 + 生成/上传配置，后端只执行 compose up / nginx reload / 可选重启 PHP，跳过 legacy upgrade；
+- 部署已统一为原生（不再有 legacy 模式开关）；
 - 部署计划末尾执行 HTTP 健康检查：`curl -fsS --max-time 10 http://127.0.0.1:<nginx_port>/`，失败则部署失败；vbox 已验证 200/500 两种结果；
 - 原生部署失败时前端恢复部署前最新配置备份（容器不回滚）；vbox 已验证 `.env` 恢复；
 - 原生部署 vbox 全链路已跑通（compose up + nginx reload + 容器健康）；
-- 原生部署 preflight 会从示例补齐 docker/nginx/php/mysql 运行配置与日志目录；
+- 原生部署 preflight 会从项目示例补齐 docker/nginx/php/mysql 运行配置与日志目录；
 - 真实 Phalcon 项目在本地 Docker 原生部署成功，HTTP 200；
 - 真实 Phalcon 项目在 vbox 远程原生部署成功，使用真实 5.23 镜像返回 HTTP 200；
 - 原生数据库备份：`docker compose exec -T mysql mysqldump`，文件写入 `backups/<deployment>/`；真实 MySQL 容器已验证 SQL 内容；
 - 原生备份支持本地列表与恢复；恢复前自动 dump 一次快照，恢复通过 stdin 执行 `mysql`；真实容器已验证插入后恢复会回退数据；
-- 数据库迁移/seed/下载/备份列表仍走 legacy CLI；
+- 数据库迁移 / seed / 定时备份已原生化（`migrate_database` / `seed_database` / `install_backup_cron`）；
 - vbox 远程目标目录不存在时，`ensure_target_dir` 不再依赖 `cd`，而是直接 `mkdir -p`；
 - `.env` 密码取自 `env_vars` 的 MYSQL_PASSWORD / REDIS_PASSWORD；
 - SSH 远程命令统一作为单个 shell 字符串传递，修复 `cd` 未生效导致 compose 找不到配置文件的问题。
@@ -249,8 +238,8 @@ Phase 1 已完成：
 
 下一步：
 
-- 将“同步全部 + 配置上传”接入部署启动流程；
-- 生产环境远程写入策略与回滚入口；
-- PHP 回退验收。
+- 新增运维命令（Nginx / SSL / cron / 隧道 / phpMyAdmin）的真实服务器回归；
+- 部署前校验必需密钥；
+- 失败后容器回滚。
 
 详见 [roadmap.md](roadmap.md)。

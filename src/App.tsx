@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
@@ -6,17 +6,17 @@ import { ProjectTabs } from "./components/ProjectTabs";
 import { Workspace } from "./components/Workspace";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { RunsModal } from "./components/RunsModal";
-import { ConfigModal } from "./components/ConfigModal";
+import { TemplateManager } from "./components/TemplateManager";
+import { AddProjectModal } from "./components/AddProjectModal";
 import {
-  AddProjectModal,
   CommandPalette,
+  ServerModal,
   SettingsModal,
   type PaletteCommand,
 } from "./components/Dialogs";
 import { Icon } from "./components/Icon";
 import {
   activities,
-  backups,
   initialTerminalLines,
   projects as seedProjects,
   servers as seedServers,
@@ -30,7 +30,6 @@ import { listen } from "@tauri-apps/api/event";
 import { parseCommandLine } from "./lib/command";
 import {
   canUseTauri,
-  importLegacyConfig,
   loadWorkspace,
   loadDeploymentConfig,
   listRuns,
@@ -41,15 +40,41 @@ import {
   prepareRuntimeAssets,
   backupDatabase,
   listDatabaseBackups,
+  downloadDatabaseBackup,
   restoreDatabaseBackup,
   listConfigBackups,
   restoreConfigBackup,
   syncBundleItem,
   syncFtpItem,
   syncGitItem,
+  migrateDatabase,
+  seedDatabase,
+  openSeedDirectory,
+  installBackupCron,
+  removeBackupCron,
+  listRemoteBackups,
+  publishNginxConfig,
+  removeNginxConfig,
+  reloadHostNginx,
+  readNginxLog,
+  checkServer,
+  enableSsl,
+  resetProject,
+  generateGitDeployKey,
+  startSshTunnel,
+  stopSshTunnel,
+  startPhpMyAdmin,
+  stopPhpMyAdmin,
+  createServer,
+  updateServer,
+  deleteServer,
+  createProject,
+  updateProject,
+  openAppDataDir,
+  type ProjectCreateInput,
+  type ServerInput,
   type DeployFinished,
   type DeployStepEvent,
-  type ImportSummary,
   type RunFinished,
   type RunOutput,
   type WorkspaceResponse,
@@ -60,9 +85,18 @@ function now() {
   return new Date().toLocaleTimeString("zh-CN", { hour12: false });
 }
 
+function formatDbTime(raw: string): string {
+  if (!raw || raw === "从未") return raw;
+  const parsed = new Date(`${raw.replace(" ", "T")}Z`);
+  return Number.isNaN(parsed.getTime())
+    ? raw
+    : parsed.toLocaleString("zh-CN", { hour12: false });
+}
+
 const sectionIds: WorkspaceSection[] = [
   "overview",
   "deploy",
+  "files",
   "containers",
   "nginx",
   "database",
@@ -93,29 +127,32 @@ const boot = readBootState();
 
 function App() {
   const [serverId, setServerId] = useState(boot.serverId);
-  const [servers, setServers] = useState<Server[]>(seedServers);
-  const [projectList, setProjectList] = useState<Project[]>(seedProjects);
+  const [servers, setServers] = useState<Server[]>(canUseTauri() ? [] : seedServers);
+  const [projectList, setProjectList] = useState<Project[]>(
+    canUseTauri() ? [] : seedProjects,
+  );
   const [openIds, setOpenIds] = useState<string[]>(boot.openIds);
   const [activeId, setActiveId] = useState(boot.project?.id ?? "");
   const [section, setSection] = useState<WorkspaceSection>(boot.section);
   const [search, setSearch] = useState("");
   const [terminals, setTerminals] = useState<Record<string, TerminalLine[]>>(initialTerminalLines);
   const [terminalCollapsed, setTerminalCollapsed] = useState(false);
-  const [showAdd, setShowAdd] = useState(boot.dialog === "add");
+  const [projectDialog, setProjectDialog] = useState<{ deploymentId?: string } | null>(
+    boot.dialog === "add" ? {} : null,
+  );
+  const [serverDialog, setServerDialog] = useState<{ serverId?: string } | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [showPalette, setShowPalette] = useState(boot.dialog === "command");
   const [showSettings, setShowSettings] = useState(boot.dialog === "settings");
   const [showRuns, setShowRuns] = useState(false);
-  const [showConfig, setShowConfig] = useState(boot.dialog === "config");
   const [runsVersion, setRunsVersion] = useState(0);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
 
-  const server = servers.find((item) => item.id === serverId) ?? servers[0];
-  const serverProjects = useMemo(
-    () => projectList.filter((project) => project.serverId === serverId),
-    [projectList, serverId],
-  );
-  const activeProject =
-    serverProjects.find((project) => project.id === activeId) ?? null;
+  const activeProject = projectList.find((project) => project.id === activeId) ?? null;
+  const server =
+    servers.find((item) => item.id === (activeProject?.serverId ?? serverId)) ??
+    servers[0] ??
+    null;
   const activeLines = activeProject ? terminals[activeProject.id] ?? [] : [];
 
   const applyWorkspace = (data: WorkspaceResponse) => {
@@ -136,7 +173,7 @@ function App() {
         branch: deployment.branch,
         status: deployment.status as ProjectStatus,
         ssl: deployment.ssl,
-        lastDeploy: deployment.lastDeploy,
+        lastDeploy: formatDbTime(deployment.lastDeploy),
         backups: deployment.backups,
         phpVersion: deployment.phpVersion,
         containers: mock?.containers ?? [],
@@ -166,6 +203,12 @@ function App() {
     });
     setActiveId(preferredProject?.id ?? "");
   };
+
+  useEffect(() => {
+    const block = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener("contextmenu", block);
+    return () => document.removeEventListener("contextmenu", block);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -198,7 +241,7 @@ function App() {
       }
       if (event.key === "Escape") {
         setShowPalette(false);
-        setShowAdd(false);
+        setProjectDialog(null);
         setShowSettings(false);
       }
     };
@@ -320,6 +363,11 @@ function App() {
     if (!activeProject) return;
     const projectId = activeProject.id;
     appendLine(projectId, "command", `$ ${command}`);
+    if (command.startsWith("phadmin:")) {
+      appendLine(projectId, "info", `→ ${label}：原生动作，浏览器预览模式不执行`);
+      setToast({ id: Date.now(), message: `${label}：浏览器预览不执行` });
+      return;
+    }
     appendLine(projectId, "info", `→ ${label}：UI 预览，模拟执行`);
     setToast({ id: Date.now(), message: `${label}已开始（模拟）` });
     window.setTimeout(() => {
@@ -327,20 +375,76 @@ function App() {
     }, 850);
   };
 
-  const handleServerChange = (id: string) => {
-    const nextProjects = projectList.filter((project) => project.serverId === id);
-    setServerId(id);
-    setSearch("");
-    setOpenIds(nextProjects.length > 0 ? [nextProjects[0].id] : []);
-    setActiveId(nextProjects[0]?.id ?? "");
-    setSection("overview");
+  const handleSaveServer = async (input: ServerInput) => {
+    if (!canUseTauri()) {
+      setToast({ id: Date.now(), message: "浏览器预览不支持保存服务器" });
+      throw new Error("浏览器预览模式不写 SQLite");
+    }
+    const editingId = serverDialog?.serverId;
+    const saved = editingId
+      ? await updateServer(editingId, input)
+      : await createServer(input);
+    applyWorkspace(await loadWorkspace());
+    setServerId(saved.id);
+    setServerDialog(null);
     setToast({
       id: Date.now(),
-      message: `已切换到 ${servers.find((item) => item.id === id)?.name ?? id}`,
+      message: editingId ? `已更新服务器 ${saved.name}` : `已添加服务器 ${saved.name}`,
     });
   };
 
+  const handleDeleteServer = async () => {
+    const editingId = serverDialog?.serverId;
+    if (!editingId) return;
+    if (!canUseTauri()) {
+      throw new Error("浏览器预览模式不写 SQLite");
+    }
+    await deleteServer(editingId);
+    applyWorkspace(await loadWorkspace());
+    setServerDialog(null);
+    setToast({ id: Date.now(), message: "服务器已删除" });
+  };
+
+  const handleSaveProject = async (
+    input: ProjectCreateInput,
+    deploymentId?: string,
+  ) => {
+    if (!canUseTauri()) {
+      throw new Error("浏览器预览模式不写 SQLite");
+    }
+    const targetId = deploymentId ?? (await createProject(input));
+    if (deploymentId) {
+      await updateProject(deploymentId, input);
+    }
+    applyWorkspace(await loadWorkspace());
+    setProjectDialog(null);
+    setOpenIds((current) =>
+      current.includes(targetId) ? current : [...current, targetId],
+    );
+    setActiveId(targetId);
+    setSection("overview");
+    setToast({
+      id: Date.now(),
+      message: deploymentId ? `已更新项目 ${input.name}` : `已创建项目 ${input.name}`,
+    });
+  };
+
+  const handleOpenDataDir = async () => {
+    if (!canUseTauri()) {
+      setToast({ id: Date.now(), message: "浏览器预览无法打开本地目录" });
+      return;
+    }
+    try {
+      const directory = await openAppDataDir();
+      setToast({ id: Date.now(), message: `已打开 ${directory}` });
+    } catch (error) {
+      setToast({ id: Date.now(), message: `打开目录失败：${String(error)}` });
+    }
+  };
+
   const handleOpen = (id: string) => {
+    const project = projectList.find((item) => item.id === id);
+    if (project) setServerId(project.serverId);
     setOpenIds((current) => (current.includes(id) ? current : [...current, id]));
     setActiveId(id);
     setSection("overview");
@@ -373,6 +477,14 @@ function App() {
 
   const handleExecuteCommand = (command: string) => {
     if (!activeProject) return;
+    if (command.startsWith("phadmin:")) {
+      if (!canUseTauri()) {
+        runAction(command, "原生操作");
+        return;
+      }
+      void handleNativeAction(command);
+      return;
+    }
     if (!canUseTauri()) {
       runAction(command, "命令");
       return;
@@ -380,10 +492,157 @@ function App() {
     handleCommand(command);
   };
 
-  const handleStartDeploy = async (restartPhp: boolean, native: boolean) => {
+  /// 原生动作统一入口：组件只需传 `phadmin:<action>?k=v`，这里映射到 Rust command。
+  const handleNativeAction = async (command: string) => {
+    if (!activeProject) return;
+    const projectId = activeProject.id;
+    const [action, query = ""] = command.slice("phadmin:".length).split("?");
+    const params = new URLSearchParams(query);
+
+    const appendOutput = (text: unknown) => {
+      if (typeof text !== "string" || text.trim() === "") return;
+      text
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .forEach((line) => appendLine(projectId, "info", line));
+    };
+
+    try {
+      switch (action) {
+        case "db-backup": {
+          appendLine(projectId, "command", "$ mysqldump");
+          const result = await backupDatabase(projectId);
+          appendLine(
+            projectId,
+            "success",
+            `数据库备份完成：${result.path}（${result.bytes} bytes）`,
+          );
+          setToast({ id: Date.now(), message: "数据库备份完成" });
+          return;
+        }
+        case "db-migrate":
+          appendLine(
+            projectId,
+            "command",
+            "$ docker compose exec php php artisan migration r",
+          );
+          appendOutput(await migrateDatabase(projectId));
+          break;
+        case "db-seed":
+          appendLine(
+            projectId,
+            "command",
+            "$ docker compose exec php php artisan db:seed --dir=/var/www/db",
+          );
+          appendOutput(await seedDatabase(projectId));
+          break;
+        case "db-seed-dir": {
+          const directory = await openSeedDirectory(projectId);
+          setToast({ id: Date.now(), message: `已打开 seed 目录：${directory}` });
+          return;
+        }
+        case "db-cron-install": {
+          const time = params.get("time") ?? "03:00";
+          const keep = Number(params.get("keep") ?? 7);
+          const result = await installBackupCron(projectId, time, keep);
+          appendLine(
+            projectId,
+            "success",
+            `定时备份已安装：每天 ${result.time}，保留 ${result.keepDays} 天 → ${result.backupDir}`,
+          );
+          appendOutput(result.transcript);
+          break;
+        }
+        case "db-cron-remove":
+          appendOutput(await removeBackupCron(projectId));
+          break;
+        case "db-remote-backups":
+          appendOutput(await listRemoteBackups(projectId));
+          break;
+        case "nginx-publish":
+          appendLine(projectId, "command", "$ nginx -t && nginx -s reload");
+          appendOutput(await publishNginxConfig(projectId));
+          break;
+        case "nginx-remove":
+          appendOutput(await removeNginxConfig(projectId));
+          break;
+        case "nginx-reload":
+          appendOutput(await reloadHostNginx(projectId));
+          break;
+        case "nginx-log-access":
+          appendOutput(await readNginxLog(projectId, "access"));
+          break;
+        case "nginx-log-error":
+          appendOutput(await readNginxLog(projectId, "error"));
+          break;
+        case "server-check":
+          appendOutput(await checkServer(projectId));
+          break;
+        case "git-key": {
+          const key = await generateGitDeployKey(projectId);
+          appendLine(projectId, "success", `部署公钥：\n${key}`);
+          break;
+        }
+        case "ssl-enable": {
+          const email = params.get("email") ?? "";
+          const result = await enableSsl(projectId, email);
+          appendLine(
+            projectId,
+            "success",
+            `SSL 已启用：${result.primaryDomain}（${result.certificate}）`,
+          );
+          appendOutput(result.transcript);
+          break;
+        }
+        case "reset": {
+          if (!window.confirm("重置会把主仓库和 git/bundle 同步目录的已跟踪文件恢复到最新提交，继续？")) {
+            return;
+          }
+          appendOutput(await resetProject(projectId));
+          break;
+        }
+        case "tunnel-start": {
+          const tunnel = await startSshTunnel(projectId, Number(params.get("port") ?? 13306));
+          appendLine(
+            projectId,
+            "success",
+            `SSH 隧道已开启：127.0.0.1:${tunnel.localPort} → ${tunnel.host} ${tunnel.remote}`,
+          );
+          setToast({ id: Date.now(), message: `SSH 隧道已开启（本地 ${tunnel.localPort}）` });
+          return;
+        }
+        case "tunnel-stop":
+          appendOutput(await stopSshTunnel(projectId));
+          break;
+        case "pma-start": {
+          const pma = await startPhpMyAdmin(projectId, Number(params.get("port") ?? 13307));
+          appendLine(projectId, "info", "━━━━━ phpMyAdmin 访问地址 ━━━━━");
+          appendLine(projectId, "info", `  ℹ   ${pma.url} —— 可点击`);
+          appendLine(projectId, "info", `  ℹ   用户名: ${pma.username}`);
+          appendLine(projectId, "info", `  ℹ   密码:   ${pma.password || "（空）"}`);
+          setToast({ id: Date.now(), message: "phpMyAdmin 已启动" });
+          return;
+        }
+        case "pma-stop":
+          appendOutput(await stopPhpMyAdmin(projectId));
+          break;
+        case "deploy":
+          await handleStartDeploy(true);
+          return;
+        default:
+          throw new Error(`未知的原生操作：${action}`);
+      }
+      setToast({ id: Date.now(), message: "操作完成" });
+    } catch (error) {
+      appendLine(projectId, "error", `操作失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "操作失败，详见终端" });
+    }
+  };
+
+  const handleStartDeploy = async (restartPhp: boolean) => {
     if (!activeProject) return;
     if (!canUseTauri()) {
-      runAction(`php admin app:${activeProject.name} upgrade`, "部署 / 升级");
+      runAction("phadmin:deploy", "部署 / 升级");
       return;
     }
 
@@ -402,20 +661,18 @@ function App() {
       }
     };
     try {
-      if (native) {
-        const backups = await listConfigBackups(projectId);
-        for (const backup of backups) {
-          if (!previousBackups.has(backup.file)) {
-            previousBackups.set(backup.file, backup.name);
-          }
+      const backups = await listConfigBackups(projectId);
+      for (const backup of backups) {
+        if (!previousBackups.has(backup.file)) {
+          previousBackups.set(backup.file, backup.name);
         }
-        appendLine(projectId, "info", "原生部署：先执行同步全部与配置上传");
-        await handleSyncAllItems();
-        await prepareRuntimeAssets(projectId);
-        await writeGeneratedConfig(projectId);
-        await applyGeneratedConfig(projectId, true);
-        appendLine(projectId, "info", "原生部署：配置已上传，启动容器编排");
       }
+      appendLine(projectId, "info", "部署：先执行同步全部与配置上传");
+      await handleSyncAllItems();
+      await prepareRuntimeAssets(projectId);
+      await writeGeneratedConfig(projectId);
+      await applyGeneratedConfig(projectId, true);
+      appendLine(projectId, "info", "部署：配置已上传，启动容器编排");
 
       let expectedRunId = "";
       let unlisten: (() => void) | undefined;
@@ -432,7 +689,7 @@ function App() {
 
       let result;
       try {
-        result = await startDeploy(projectId, restartPhp, native);
+        result = await startDeploy(projectId, restartPhp);
         expectedRunId = result.deployRunId;
       } catch (error) {
         unlisten?.();
@@ -445,18 +702,20 @@ function App() {
       );
       setToast({ id: Date.now(), message: "部署已启动" });
 
-      if (native) {
-        const outcome = await finished;
-        if (outcome.status !== "succeeded") {
-          await restorePreviousConfig();
-        }
-      }
-    } catch (error) {
-      if (native) {
+      const outcome = await finished;
+      if (outcome.status !== "succeeded") {
         await restorePreviousConfig();
       }
+    } catch (error) {
+      await restorePreviousConfig();
       appendLine(projectId, "error", `部署启动失败：${String(error)}`);
       setToast({ id: Date.now(), message: "部署启动失败" });
+    }
+
+    try {
+      applyWorkspace(await loadWorkspace());
+    } catch (error) {
+      console.error("部署后刷新工作区失败", error);
     }
   };
 
@@ -577,20 +836,16 @@ function App() {
   const handleNginxReload = async (): Promise<void> => {
     if (!activeProject) return;
     if (!canUseTauri()) {
-      runAction("docker compose exec nginx nginx -s reload", "重载 Nginx");
+      runAction("phadmin:nginx-reload", "重载 Nginx");
       return;
     }
     try {
-      const runId = await runCommand(activeProject.id, "docker", [
-        "compose",
-        "exec",
-        "nginx",
-        "nginx",
-        "-s",
-        "reload",
-      ]);
-      appendLine(activeProject.id, "info", `Nginx reload 任务 ${runId} 已启动`);
-      setToast({ id: Date.now(), message: "Nginx reload 已启动" });
+      const output = await reloadHostNginx(activeProject.id);
+      output
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .forEach((line) => appendLine(activeProject.id, "info", line));
+      setToast({ id: Date.now(), message: "宿主机 Nginx 已重载" });
     } catch (error) {
       appendLine(activeProject.id, "error", `Nginx reload 失败：${String(error)}`);
       setToast({ id: Date.now(), message: "Nginx reload 失败" });
@@ -600,43 +855,18 @@ function App() {
   const handleNginxAccessLog = async (): Promise<void> => {
     if (!activeProject) return;
     if (!canUseTauri()) {
-      runAction("docker compose exec nginx tail -n 100 /var/log/nginx/access.log", "查看访问日志");
+      runAction("phadmin:nginx-log-access", "查看访问日志");
       return;
     }
     try {
-      const runId = await runCommand(activeProject.id, "docker", [
-        "compose",
-        "exec",
-        "nginx",
-        "tail",
-        "-n",
-        "100",
-        "/var/log/nginx/access.log",
-      ]);
-      appendLine(activeProject.id, "info", `访问日志任务 ${runId} 已启动`);
-      setToast({ id: Date.now(), message: "正在读取访问日志" });
+      const output = await readNginxLog(activeProject.id, "access");
+      output
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .forEach((line) => appendLine(activeProject.id, "info", line));
+      setToast({ id: Date.now(), message: "已读取 Nginx 访问日志" });
     } catch (error) {
       appendLine(activeProject.id, "error", `访问日志失败：${String(error)}`);
-    }
-  };
-
-  const handleDbCommand = async (args: string[], label: string): Promise<void> => {
-    if (!activeProject) return;
-    if (!canUseTauri()) {
-      runAction(`php admin app:${activeProject.name} ${args.join(" ")}`, label);
-      return;
-    }
-    try {
-      const runId = await runCommand(activeProject.id, "php", [
-        "admin",
-        `app:${activeProject.name}`,
-        ...args,
-      ]);
-      appendLine(activeProject.id, "info", `${label}任务 ${runId} 已启动`);
-      setToast({ id: Date.now(), message: `${label}已启动` });
-    } catch (error) {
-      appendLine(activeProject.id, "error", `${label}失败：${String(error)}`);
-      setToast({ id: Date.now(), message: `${label}失败` });
     }
   };
 
@@ -688,6 +918,18 @@ function App() {
     }
   };
 
+  const handleDownloadNativeBackup = async (name: string): Promise<void> => {
+    if (!activeProject) return;
+    try {
+      const path = await downloadDatabaseBackup(activeProject.id, name);
+      appendLine(activeProject.id, "success", `备份已导出：${path}`);
+      setToast({ id: Date.now(), message: "备份已下载到下载目录" });
+    } catch (error) {
+      appendLine(activeProject.id, "error", `导出备份失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "导出备份失败" });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -706,79 +948,86 @@ function App() {
     });
   };
 
-  const handleImportLegacy = async (json: string): Promise<ImportSummary> => {
+  const handlePaletteRun = (command: string, label: string) => {
     if (!canUseTauri()) {
-      throw new Error("浏览器预览模式不支持导入，请在 Tauri 窗口中使用。");
+      runAction(command, label);
+      return;
     }
-    const summary = await importLegacyConfig(json);
-    applyWorkspace(await loadWorkspace());
-    setToast({
-      id: Date.now(),
-      message: `legacy 导入完成：${summary.servers} 服务器 / ${summary.projects} 项目 / ${summary.deployments} 部署`,
-    });
-    return summary;
+    if (command.startsWith("phadmin:")) {
+      void handleNativeAction(command);
+      return;
+    }
+    handleCommand(command);
   };
 
   const paletteCommands: PaletteCommand[] = activeProject
     ? [
         {
-          label: `升级 ${activeProject.name}`,
-          description: "同步代码，不覆盖配置",
-          command: `php admin app:${activeProject.name} upgrade`,
-        },
-        {
           label: `部署 ${activeProject.name}`,
-          description: "首次部署 / 配置预览",
-          command: `php admin app:${activeProject.name} init`,
+          description: "同步全部 → 上传配置 → compose up → 健康检查",
+          command: "phadmin:deploy",
         },
         {
           label: "重启 PHP 容器",
-          description: "清空 opcache",
-          command: `php admin app:${activeProject.name} dc:restart:php`,
+          description: "docker compose restart php",
+          command: "docker compose restart php",
         },
         {
           label: "容器状态",
           description: "查看 docker compose ps",
-          command: `php admin app:${activeProject.name} dc:status`,
+          command: "docker compose ps",
         },
         {
           label: "备份数据库",
-          description: "立即生成服务器备份",
-          command: `php admin app:${activeProject.name} db:backup`,
+          description: "mysqldump 到本地备份目录",
+          command: "phadmin:db-backup",
+        },
+        {
+          label: "发布 Nginx 配置",
+          description: "生成并上传到宿主机 /etc/nginx/conf.d",
+          command: "phadmin:nginx-publish",
         },
         {
           label: "重载 Nginx",
           description: "语法检查并 reload",
-          command: "php admin nginx:reload",
+          command: "phadmin:nginx-reload",
+        },
+        {
+          label: "服务器环境检查",
+          description: "docker / nginx / certbot / 端口",
+          command: "phadmin:server-check",
         },
       ]
     : [
         {
-          label: "环境检查",
+          label: "服务器环境检查",
           description: "检查服务器依赖与端口",
-          command: "php admin server:init",
+          command: "phadmin:server-check",
         },
       ];
 
   return (
     <div className="app">
       <TopBar
-        servers={servers}
-        serverId={serverId}
-        onServerChange={handleServerChange}
-        onOpenCommand={() => setShowPalette(true)}
+        servers={servers.filter((item) => item.kind !== "filesystem")}
+        activeServerId={activeProject?.serverId ?? serverId}
+        onEditServer={(serverId) => setServerDialog({ serverId })}
+        onAddServer={() => setServerDialog({})}
+        onOpenTemplates={() => setShowTemplates(true)}
         onOpenSettings={() => setShowSettings(true)}
       />
 
       <div className="app-body">
         <Sidebar
-          projects={serverProjects}
+          projects={projectList}
+          serverNames={Object.fromEntries(servers.map((server) => [server.id, server.name]))}
           activeId={activeId}
           openIds={openIds}
           search={search}
           onSearch={setSearch}
           onOpen={handleOpen}
-          onAdd={() => setShowAdd(true)}
+          onAdd={() => setProjectDialog({})}
+          onEditProject={(id) => setProjectDialog({ deploymentId: id })}
         />
 
         <main className="main-column">
@@ -788,7 +1037,7 @@ function App() {
             activeId={activeId}
             onSelect={handleOpen}
             onClose={handleClose}
-            onAdd={() => setShowAdd(true)}
+            onAdd={() => setProjectDialog({})}
           />
 
           <Workspace
@@ -796,9 +1045,8 @@ function App() {
             server={server}
             section={section}
             activities={activities}
-            backups={backups}
             onSectionChange={setSection}
-            onAction={runAction}
+            onAction={handleExecuteCommand}
             onNotify={(message) => setToast({ id: Date.now(), message })}
             onTestConnection={handleTestConnection}
             onOpenRuns={() => setShowRuns(true)}
@@ -810,11 +1058,10 @@ function App() {
             onSyncAll={handleSyncAllItems}
             onAccessLog={handleNginxAccessLog}
             onReloadNginx={handleNginxReload}
-            onDbCommand={handleDbCommand}
             onNativeDbBackup={handleNativeDbBackup}
             onListNativeBackups={handleListNativeBackups}
             onRestoreNativeBackup={handleRestoreNativeBackup}
-            onPreviewConfig={() => setShowConfig(true)}
+            onDownloadNativeBackup={handleDownloadNativeBackup}
             refreshVersion={runsVersion}
           />
 
@@ -834,29 +1081,36 @@ function App() {
         </main>
       </div>
 
-      {showAdd && (
+      {projectDialog && (
         <AddProjectModal
           servers={servers}
           serverId={serverId}
           existingNames={projectList.map((project) => project.name)}
-          onClose={() => setShowAdd(false)}
-          onCreate={(project) => {
-            setProjectList((current) => [...current, project]);
-            setShowAdd(false);
-            setServerId(project.serverId);
-            setOpenIds([project.id]);
-            setActiveId(project.id);
-            setSection("overview");
-            setToast({ id: Date.now(), message: `已创建 ${project.name}（内存记录）` });
-          }}
+          deploymentId={projectDialog.deploymentId}
+          onClose={() => setProjectDialog(null)}
+          onSubmit={handleSaveProject}
         />
+      )}
+
+      {serverDialog && (
+        <ServerModal
+          serverId={serverDialog.serverId}
+          serverName={servers.find((item) => item.id === serverDialog.serverId)?.name}
+          onClose={() => setServerDialog(null)}
+          onSave={handleSaveServer}
+          onDelete={serverDialog.serverId ? handleDeleteServer : undefined}
+        />
+      )}
+
+      {showTemplates && (
+        <TemplateManager onClose={() => setShowTemplates(false)} />
       )}
 
       <CommandPalette
         open={showPalette}
         commands={paletteCommands}
         onClose={() => setShowPalette(false)}
-        onRun={runAction}
+        onRun={handlePaletteRun}
       />
 
       {showRuns && activeProject && (
@@ -868,14 +1122,10 @@ function App() {
         />
       )}
 
-      {showConfig && activeProject && (
-        <ConfigModal project={activeProject} onClose={() => setShowConfig(false)} />
-      )}
-
       {showSettings && (
         <SettingsModal
           onClose={() => setShowSettings(false)}
-          onImportLegacy={handleImportLegacy}
+          onOpenDataDir={() => void handleOpenDataDir()}
         />
       )}
 

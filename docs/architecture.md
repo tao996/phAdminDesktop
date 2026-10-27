@@ -139,28 +139,35 @@ Server 1 ─── n Deployment ─── 1 Project
 src-tauri/src/
   lib.rs            # AppState、command 注册、setup
   main.rs
-  commands.rs       # workspace/import/runs/config/sync/git/bundle/ftp
+  commands.rs       # workspace/runs/config/sync/git/bundle/ftp
   db.rs             # schema、migration、seed、查询
   models.rs         # serde 模型
-  legacy.rs         # legacy config:export 导入
-  runner.rs         # 本地/SSH 命令、容器、日志、目标路径
-  deploy.rs         # 多步骤部署编排、部署历史
+  deploy_context.rs # 部署上下文（项目/目录/域名/端口/目标机）
+  env_vars.rs       # 环境变量读取/写入，密文走 keychain
+  secrets.rs        # SecretStore（KeychainStore / MemoryStore）
+  runner.rs         # 本地/SSH 命令、容器、日志、目标路径、隧道
+  deploy.rs         # compose up / nginx reload / 重启 / 健康检查编排
+  db_ops.rs         # 迁移、seed、服务器 crontab 备份
+  host_nginx.rs     # 宿主机 Nginx 发布/移除/reload/日志/环境检查/SSL
+  project_ops.rs    # 重置代码、部署密钥、SSH 隧道、phpMyAdmin
   render.rs         # .env / nginx / compose / config.php 渲染
   config_apply.rs   # 远程配置上传、校验、备份/恢复/清理
+  database.rs       # mysqldump 备份、恢复（快照）
   templates/        # env.example / docker-compose.yaml / config.php.template
 ```
 
 已实现顺序：
 
-1. SQLite + legacy 导入；
+1. SQLite + 工作区读取；
 2. 本地/SSH 命令、流式输出、取消、日志；
 3. 容器真实操作；
 4. 多步骤部署编排 + 部署历史；
 5. 原生 git / bundle / ftp 同步；
 6. 配置渲染、generated 写入、远程上传/校验/备份恢复/清理；
-7. 同步全部与失败中止。
+7. 同步全部与失败中止；
+8. `php admin` 全量原生化（Nginx/SSL/迁移 seed cron/重置/隧道/phpMyAdmin）。
 
-尚未完成：原生同步/配置上传自动嵌入 `start_deploy`；生产远程写入策略；PHP 回退验收。
+尚未完成：新增运维命令的真实服务器回归；部署前密钥强校验；失败容器回滚。
 
 ---
 
@@ -198,53 +205,21 @@ frontend invoke("run_command", { deploymentId, command, args })
 | 运行日志 | `<app_data>/logs/<run_id>.log` |
 | 远程配置备份 | 部署目录下 `<file>.bak-<millis>` |
 | 设置 | SQLite `settings` 或 Tauri Store |
-| PHP fallback 配置 | 导出到临时目录，不写回 SQLite |
+| 密码/密钥 | OS 凭据管理器，DB 只存 `secret_ref` |
 
 SQLite 不存大文本日志、备份二进制、生成物全文。
 
 ---
 
-## 8. 与 PHP deploy 的关系
+## 8. 与 legacy `php admin` 的关系
 
-### 8.1 迁移
+桌面端已完全接管，旧 CLI 不再参与运行：
 
-首次启动或手动触发：
-
-```text
-php admin config:export
-  → JSON
-  → Rust legacy_import
-  → SQLite servers/projects/deployments
-```
-
-`config:export` 已输出合并后的配置，是现成的迁移入口，不需要在 Rust 解析 PHP 源码。
-
-### 8.2 回退
-
-过渡期需要应急时：
-
-```text
-SQLite
-  → 导出单 deployment 的 server.php / 项目 server.php
-  → php admin app:<项目> ...
-```
-
-限制：
-
-- 现有 PHP CLI 是单服务器、单项目配置模型；
-- 一次只能导出/操作一个 deployment；
-- 回退路径不保证多服务器并发；
-- 导出文件含敏感信息，必须放在 gitignored 临时目录，用完清理。
-
-### 8.3 下线条件
-
-满足以下条件后，PHP deploy 可下线：
-
-- 桌面端覆盖 init/upgrade/reset/dc/nginx/db/ssl 全部主流程；
-- 至少一个真实项目在 prod + staging 完成回归；
-- 导入/导出与差分测试通过；
-- 关键路径有自动化测试；
-- 有明确的回滚方案和版本记录。
+- 没有配置导入：deployment / sync item / env var 直接维护在 SQLite；
+- 没有 legacy deploy 步骤：部署由 `prepare_runtime_assets` + `render` + `config_apply` + `start_deploy` 完成；
+- 没有 PHP fallback：不导出 `server.php`，不回退到 `php admin`；
+- 终端白名单不含 `php`，`ALLOWED_PROGRAMS` 只保留 `docker/git/ssh/ls/pwd/whoami/composer/curl`；
+- 旧仓库 `D:\demo\code\flutter\library\projects\phalcon-admin` 仅作历史参考。
 
 ---
 
@@ -267,9 +242,8 @@ SQLite
 - Rust：`cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`；
 - 前端：`npm run typecheck`、`npm run build`；
 - SQLite：每个 migration 有升级/恢复测试，迁移前备份；
-- 配置渲染：与 PHP 生成的 `.env`/compose/nginx/config.php 做 golden/diff；
-- 集成：Docker 起 sshd + compose 栈，跑真实 init/upgrade；
-- 回退：CI 定期用导出的 PHP 配置执行 `php admin` 冒烟；
+- 配置渲染：`.env` / compose / nginx / config.php 模板单测；
+- 集成：Docker 起 sshd + compose 栈，跑真实部署；
 - 不允许“只编译通过”就认为完成。
 
 ---
@@ -279,9 +253,9 @@ SQLite
 - 已完成 Tauri 2 + React + TypeScript 脚手架；
 - 已完成静态 UI 原型（概览、部署、容器、Nginx、数据库、日志、弹窗）；
 - 已接入 SQLite 只读层：启动自动建 `servers/projects/deployments` 三表并 seed，`load_workspace` command 返回服务器/项目/部署；
-- 已实现 legacy 导入：`import_legacy_config` 解析 `php admin config:export` JSON，写入 servers/projects/deployments/domains/env_vars/sync_items/deployment_settings；
+- legacy 导入已移除：deployment 数据直接维护在 SQLite；
 - 已实现基础任务执行：`run_command` 支持本地 filesystem 与系统 `ssh`（BatchMode + key），stdout/stderr 通过 Tauri event 流式推送，写入 `runs`；
-- 终端支持白名单命令（`docker/php/git/ssh/ls/pwd/whoami/composer`），前端 argv 解析，不经过 shell；
+- 终端支持白名单命令（`docker/git/ssh/ls/pwd/whoami/composer/curl`），前端 argv 解析，不经过 shell；
 - 已实现 `list_runs` 任务历史与 `cancel_run`；终端「任务」面板可查看/取消；
 - 任务 stdout/stderr 同时写入 `%APPDATA%/cn.gu19.phadmin.desktop/logs/<run_id>.log`，`read_run_log` 可在任务面板查看；
 - 已实现 `get_containers`：执行 `docker compose ps --format json` 并解析为容器列表；Containers 面板打开时自动刷新；
@@ -293,20 +267,22 @@ SQLite
 - Deploy 面板增加“同步全部”：按 sync_items 顺序执行 git / bundle / ftp，git 等待 run 结束；
 - 部署计划末尾增加健康检查：对 `127.0.0.1:<nginx_port>/` 执行 `curl -fsS --max-time 10`，4xx/5xx 或容器未起时部署判失败；vbox 已实测成功/失败场景；
 - 原生部署失败时自动恢复部署前最近一组配置备份（仅配置，不回滚容器/镜像）；vbox 已实测 `.env` 恢复；
-- Deploy 面板增加“原生部署（实验）”：先同步全部并上传配置，再走 compose up / nginx reload / 可选重启 PHP，跳过 `php admin upgrade`；legacy 模式保留为回退；
-- 原生部署 preflight 增加 `prepare_runtime_assets`：从 legacy 示例补齐 `docker/nginx/sites/default.conf`、`docker/php/php.ini`、`docker/mysql/my.cnf` 并创建日志/存储目录；
+- 部署统一为原生：同步全部 → 上传配置 → compose up / nginx reload / 可选重启 PHP；已移除 legacy 模式与 `native` 开关；
+- 原生部署 preflight 的 `prepare_runtime_assets` 从项目仓库的示例文件补齐 `docker/nginx/sites/default.conf`、`docker/php/php.ini`、`docker/mysql/my.cnf` 并创建日志/存储目录；
 - 原生部署已用真实 Phalcon 项目在本地 Docker 与 vbox 远程跑通；vbox 使用真实 5.23 镜像返回 HTTP 200；
 - `.env` 的 MYSQL_PASSWORD / REDIS_PASSWORD 从 `env_vars` 读取，避免生成空密码导致容器启动失败；
 - Deploy 面板通过 `preview_deploy_plan` 展示真实部署步骤与命令；
-- Nginx 面板 reload / 访问日志已接真实 `docker compose exec nginx`，上传配置仍走 legacy；
+- Nginx 面板已接宿主机 Nginx：发布/移除站点配置、`nginx -t` + reload、访问与错误日志、环境检查；
 - 原生数据库备份：`docker compose exec -T mysql mysqldump`，保存到 `app_data/backups/<deployment>/<millis>.sql`；真实 MySQL 容器已验证；支持本地备份列表；
 - 原生数据库恢复前自动执行一次 mysqldump 快照，返回 `snapshotPath`；恢复 SQL 通过 stdin 导入 mysql；
-- 数据库迁移/seed/下载/备份列表仍通过 legacy CLI 过渡；
+- 数据库迁移 / seed / 服务器 crontab 定时备份已原生化（`migrate_database` / `seed_database` / `install_backup_cron`）；
 - 新增 `sync_git_item`：本地 filesystem / SSH 的 git 同步项支持 clone / pull，执行进入 runs 与日志；同步项级锁防止重复执行；
 - 新增 `sync_bundle_item`：本地 filesystem / SSH 的 bundle 同步项使用 `git bundle` + clone/fetch/merge，SSH 通过 scp 上传；执行结果写入 runs 与日志；
-- 新增 config.php 预览与生成：将 deployment_settings.config_json 转 PHP 数组字面量并套用模板，纳入 generated 与远程上传；`env.example` / compose / config.php 模板已与 legacy 逐行对齐；
+- 新增 config.php 预览与生成：将 deployment_settings.config_json 转 PHP 数组字面量并套用模板，纳入 generated 与远程上传；`env.example` / compose / config.php 模板已固化；
 - 新增 `sync_ftp_item`：本地目录递归复制 / SSH `scp -r`，本地支持 excludes；
 - ftp/SFTP 基础同步已接入；`.env` / Nginx / docker-compose / config.php 可预览并写入本地 generated 目录，支持变更状态检测；生成文件可上传远程、写 `.bak-<millis>` 备份、检查差异、恢复并按可配置数量清理旧备份；上传后逐文件回读校验（vbox 已实测）；
-- 下一步：远程配置写入产品策略 / 部署计划接入原生同步。
+- `php admin` 依赖已清零：无导入、无 legacy 部署步骤、无 PHP fallback、终端不含 `php`；
+- 新增原生运维：宿主机 Nginx 发布/移除/reload/日志/环境检查、certbot SSL、迁移/seed/cron、重置代码、部署密钥、SSH 隧道、临时 phpMyAdmin；
+- 下一步：新增运维命令的真实服务器回归 / 部署前密钥强校验 / 失败容器回滚。
 
 参见 [roadmap.md](roadmap.md)。

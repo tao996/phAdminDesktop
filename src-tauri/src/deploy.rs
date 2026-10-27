@@ -60,25 +60,8 @@ fn next_deploy_id() -> String {
     )
 }
 
-fn build_plan(
-    project_name: &str,
-    restart_php: bool,
-    native: bool,
-    nginx_port: i64,
-) -> Vec<DeployStep> {
+fn build_plan(restart_php: bool, nginx_port: i64) -> Vec<DeployStep> {
     let mut steps = Vec::new();
-    if !native {
-        steps.push(DeployStep {
-            key: "upgrade".to_string(),
-            title: "同步代码 / 生成配置".to_string(),
-            program: "php".to_string(),
-            args: vec![
-                "admin".to_string(),
-                format!("app:{project_name}"),
-                "upgrade".to_string(),
-            ],
-        });
-    }
     steps.push(DeployStep {
         key: "compose-up".to_string(),
         title: "启动 / 更新容器".to_string(),
@@ -103,11 +86,11 @@ fn build_plan(
         steps.push(DeployStep {
             key: "restart-php".to_string(),
             title: "重启 PHP".to_string(),
-            program: "php".to_string(),
+            program: "docker".to_string(),
             args: vec![
-                "admin".to_string(),
-                format!("app:{project_name}"),
-                "dc:restart:php".to_string(),
+                "compose".to_string(),
+                "restart".to_string(),
+                "php".to_string(),
             ],
         });
     }
@@ -148,6 +131,17 @@ fn finish_deploy(
              SET status = ?1, ended_at = datetime('now'), error_summary = ?2
              WHERE id = ?3",
             params![status, error.as_deref(), deploy_run_id],
+        );
+        let deployment_status = match status {
+            "succeeded" => "running",
+            "canceled" => "stopped",
+            _ => "warning",
+        };
+        let _ = connection.execute(
+            "UPDATE deployments
+             SET status = ?1, last_deploy = datetime('now'), updated_at = datetime('now')
+             WHERE id = ?2",
+            params![deployment_status, deployment_id],
         );
     }
     let _ = app.emit(
@@ -267,23 +261,64 @@ pub fn preview_deploy_plan(
     state: State<'_, AppState>,
     deployment_id: String,
     restart_php: bool,
-    native: bool,
 ) -> Result<Vec<DeployStep>, String> {
     let connection = state
         .db
         .lock()
         .map_err(|error| format!("数据库连接被占用: {error}"))?;
-    let (project_name, nginx_port) = connection
+    let nginx_port: i64 = connection
         .query_row(
-            "SELECT p.name, d.nginx_port
+            "SELECT d.nginx_port
              FROM deployments d
-             JOIN projects p ON p.id = d.project_id
              WHERE d.id = ?1",
             [&deployment_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            |row| row.get(0),
         )
         .map_err(|error| format!("部署不存在: {error}"))?;
-    Ok(build_plan(&project_name, restart_php, native, nginx_port))
+    Ok(build_plan(restart_php, nginx_port))
+}
+
+/// 共享网络由 compose 以 external 引用，部署前确保它存在。
+fn ensure_shared_network(app: &AppHandle, deployment_id: &str) -> Result<(), String> {
+    let target = {
+        let state = app.state::<AppState>();
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, deployment_id)?
+    };
+    let network = target.docker_network.trim();
+    if network.is_empty() {
+        return Ok(());
+    }
+
+    let (exists, _) = runner::capture_target_command(
+        &target,
+        "docker",
+        &[
+            "network".to_string(),
+            "inspect".to_string(),
+            network.to_string(),
+        ],
+    )?;
+    if exists {
+        return Ok(());
+    }
+
+    let (created, output) = runner::capture_target_command(
+        &target,
+        "docker",
+        &[
+            "network".to_string(),
+            "create".to_string(),
+            network.to_string(),
+        ],
+    )?;
+    if !created {
+        return Err(format!("创建共享网络 {network} 失败: {}", output.trim()));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -292,26 +327,22 @@ pub fn start_deploy(
     state: State<'_, AppState>,
     deployment_id: String,
     restart_php: bool,
-    native: bool,
 ) -> Result<DeployStart, String> {
-    let (project_name, nginx_port) = {
+    let nginx_port: i64 = {
         let connection = state
             .db
             .lock()
             .map_err(|error| format!("数据库连接被占用: {error}"))?;
         connection
             .query_row(
-                "SELECT p.name, d.nginx_port
-                 FROM deployments d
-                 JOIN projects p ON p.id = d.project_id
-                 WHERE d.id = ?1",
+                "SELECT d.nginx_port FROM deployments d WHERE d.id = ?1",
                 [&deployment_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                |row| row.get(0),
             )
             .map_err(|error| format!("部署不存在: {error}"))?
     };
 
-    let steps = build_plan(&project_name, restart_php, native, nginx_port);
+    let steps = build_plan(restart_php, nginx_port);
     let deploy_run_id = next_deploy_id();
     let plan_json =
         serde_json::to_string(&steps).map_err(|error| format!("部署计划编码失败: {error}"))?;
@@ -346,6 +377,16 @@ pub fn start_deploy(
     let deployment_id_for_thread = deployment_id.clone();
     let steps_for_thread = steps.clone();
     thread::spawn(move || {
+        if let Err(error) = ensure_shared_network(&app_for_thread, &deployment_id_for_thread) {
+            finish_deploy(
+                &app_for_thread,
+                &deploy_id_for_thread,
+                &deployment_id_for_thread,
+                "failed",
+                Some(error),
+            );
+            return;
+        }
         execute_plan(
             app_for_thread,
             deployment_id_for_thread,
@@ -366,37 +407,37 @@ mod tests {
 
     #[test]
     fn plan_includes_restart_only_when_requested() {
-        let base = build_plan("demo", false, false, 8071);
+        let base = build_plan(false, 8071);
         assert_eq!(
             base.iter()
                 .map(|step| step.key.as_str())
                 .collect::<Vec<_>>(),
-            vec!["upgrade", "compose-up", "nginx-reload", "health-check"]
+            vec!["compose-up", "nginx-reload", "health-check"]
         );
         assert_eq!(
             base[0].args,
-            vec!["admin", "app:demo", "upgrade"]
+            vec!["compose", "up", "-d"]
                 .into_iter()
                 .map(str::to_string)
                 .collect::<Vec<_>>()
         );
 
-        let with_restart = build_plan("demo", true, false, 8071);
-        assert_eq!(with_restart.len(), 5);
-        assert_eq!(with_restart[3].key, "restart-php");
-        assert_eq!(with_restart[4].key, "health-check");
+        let with_restart = build_plan(true, 8071);
+        assert_eq!(with_restart.len(), 4);
+        assert_eq!(with_restart[2].key, "restart-php");
+        assert_eq!(
+            with_restart[2].args,
+            vec!["compose", "restart", "php"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(with_restart[3].key, "health-check");
     }
 
     #[test]
-    fn native_plan_skips_legacy_upgrade() {
-        let native = build_plan("demo", false, true, 8071);
-        assert_eq!(
-            native
-                .iter()
-                .map(|step| step.key.as_str())
-                .collect::<Vec<_>>(),
-            vec!["compose-up", "nginx-reload", "health-check"]
-        );
-        assert!(native.iter().all(|step| step.program != "php"));
+    fn plan_never_calls_the_legacy_cli() {
+        let plan = build_plan(true, 8071);
+        assert!(plan.iter().all(|step| step.program != "php"));
     }
 }

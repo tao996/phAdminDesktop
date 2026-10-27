@@ -1,10 +1,15 @@
 use std::fs;
+use std::io::{Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
 use crate::AppState;
+use crate::env_vars;
 use crate::runner;
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,18 +57,14 @@ fn mysql_connection(
             |row| row.get::<_, String>(0),
         )
         .map_err(|error| format!("项目不存在: {error}"))?;
-    let env = |key: &str| -> String {
-        connection
-            .query_row(
-                "SELECT value FROM env_vars WHERE deployment_id = ?1 AND key = ?2",
-                rusqlite::params![deployment_id, key],
-                |row| row.get::<_, String>(0),
-            )
-            .ok()
-            .unwrap_or_default()
+    let env = |key: &str| -> Result<String, String> {
+        Ok(
+            env_vars::resolve(&connection, state.secrets.as_ref(), deployment_id, key)?
+                .unwrap_or_default(),
+        )
     };
-    let user = env("MYSQL_USER");
-    let database = env("MYSQL_DATABASE");
+    let user = env("MYSQL_USER")?;
+    let database = env("MYSQL_DATABASE")?;
     Ok((
         target,
         if user.is_empty() {
@@ -71,7 +72,7 @@ fn mysql_connection(
         } else {
             user
         },
-        env("MYSQL_PASSWORD"),
+        env("MYSQL_PASSWORD")?,
         if database.is_empty() {
             project_name
         } else {
@@ -91,7 +92,7 @@ pub fn list_database_backups(
     {
         let entry = entry.map_err(|error| format!("读取备份失败: {error}"))?;
         let name = entry.file_name().to_string_lossy().to_string();
-        if !name.ends_with(".sql") {
+        if !(name.ends_with(".sql") || name.ends_with(".sql.gz")) {
             continue;
         }
         let metadata = entry
@@ -121,12 +122,25 @@ pub fn restore_database_backup(
     deployment_id: String,
     name: String,
 ) -> Result<RestoreResult, String> {
-    if name.contains('/') || name.contains('\\') || !name.ends_with(".sql") {
+    if name.contains('/')
+        || name.contains('\\')
+        || !(name.ends_with(".sql") || name.ends_with(".sql.gz"))
+    {
         return Err("非法备份文件名".to_string());
     }
     let directory = backup_directory(&app, &deployment_id)?;
     let path = directory.join(&name);
-    let sql = fs::read(&path).map_err(|error| format!("读取备份失败: {error}"))?;
+    let raw = fs::read(&path).map_err(|error| format!("读取备份失败: {error}"))?;
+    let sql = if name.ends_with(".gz") {
+        let mut decoder = GzDecoder::new(raw.as_slice());
+        let mut decoded = Vec::new();
+        decoder
+            .read_to_end(&mut decoded)
+            .map_err(|error| format!("解压备份失败: {error}"))?;
+        decoded
+    } else {
+        raw
+    };
     let snapshot = dump_database(&app, &state, &deployment_id)?;
     let (target, user, password, database) = mysql_connection(&state, &deployment_id)?;
 
@@ -178,56 +192,7 @@ fn dump_database(
     state: &State<'_, AppState>,
     deployment_id: &str,
 ) -> Result<DatabaseBackup, String> {
-    let (target, project_name) = {
-        let connection = state
-            .db
-            .lock()
-            .map_err(|error| format!("数据库连接被占用: {error}"))?;
-        let target = runner::load_target(&connection, deployment_id)?;
-        let project_name = connection
-            .query_row(
-                "SELECT p.name
-                 FROM deployments d
-                 JOIN projects p ON p.id = d.project_id
-                 WHERE d.id = ?1",
-                [&deployment_id],
-                |row| row.get::<_, String>(0),
-            )
-            .map_err(|error| format!("项目不存在: {error}"))?;
-        (target, project_name)
-    };
-
-    let (user, password, database) = {
-        let connection = state
-            .db
-            .lock()
-            .map_err(|error| format!("数据库连接被占用: {error}"))?;
-        let env = |key: &str| -> String {
-            connection
-                .query_row(
-                    "SELECT value FROM env_vars WHERE deployment_id = ?1 AND key = ?2",
-                    rusqlite::params![&deployment_id, key],
-                    |row| row.get::<_, String>(0),
-                )
-                .ok()
-                .unwrap_or_default()
-        };
-        let user = env("MYSQL_USER");
-        let database = env("MYSQL_DATABASE");
-        (
-            if user.is_empty() {
-                project_name.clone()
-            } else {
-                user
-            },
-            env("MYSQL_PASSWORD"),
-            if database.is_empty() {
-                project_name
-            } else {
-                database
-            },
-        )
-    };
+    let (target, user, password, database) = mysql_connection(state, deployment_id)?;
 
     let args = mysqldump_args(&user, &password, &database);
     let (success, stdout, stderr) = runner::capture_target_stdout(&target, "docker", &args)?;
@@ -249,12 +214,45 @@ fn dump_database(
         .join("backups")
         .join(deployment_id);
     fs::create_dir_all(&directory).map_err(|error| format!("创建备份目录失败: {error}"))?;
-    let path = directory.join(format!("{millis}.sql"));
-    fs::write(&path, &stdout).map_err(|error| format!("写入备份失败: {error}"))?;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(&stdout)
+        .map_err(|error| format!("压缩备份失败: {error}"))?;
+    let compressed = encoder
+        .finish()
+        .map_err(|error| format!("压缩备份失败: {error}"))?;
+    let path = directory.join(format!("{millis}.sql.gz"));
+    fs::write(&path, &compressed).map_err(|error| format!("写入备份失败: {error}"))?;
     Ok(DatabaseBackup {
         path: path.to_string_lossy().to_string(),
-        bytes: stdout.len(),
+        bytes: compressed.len(),
     })
+}
+
+#[tauri::command]
+pub fn download_database_backup(
+    app: AppHandle,
+    deployment_id: String,
+    name: String,
+) -> Result<String, String> {
+    if name.contains('/')
+        || name.contains('\\')
+        || !(name.ends_with(".sql") || name.ends_with(".sql.gz"))
+    {
+        return Err("非法备份文件名".to_string());
+    }
+    let source = backup_directory(&app, &deployment_id)?.join(&name);
+    if !source.exists() {
+        return Err(format!("备份不存在: {name}"));
+    }
+    let downloads = app
+        .path()
+        .download_dir()
+        .map_err(|error| format!("获取下载目录失败: {error}"))?;
+    fs::create_dir_all(&downloads).map_err(|error| format!("创建下载目录失败: {error}"))?;
+    let destination = downloads.join(&name);
+    fs::copy(&source, &destination).map_err(|error| format!("导出备份失败: {error}"))?;
+    Ok(destination.to_string_lossy().to_string())
 }
 
 #[tauri::command]

@@ -1,6 +1,32 @@
 import { useEffect, useRef, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { canUseTauri } from "../api/workspace";
 import type { Project, TerminalLine } from "../data/mock";
 import { Icon } from "./Icon";
+
+function renderText(text: string) {
+  const parts = text.split(/(https?:\/\/[^\s，。]+)/g);
+  return parts.map((part, index) => {
+    if (!/^https?:\/\//.test(part)) return part;
+    return (
+      <a
+        key={index}
+        href={part}
+        className="terminal-link"
+        onClick={(event) => {
+          event.preventDefault();
+          if (canUseTauri()) {
+            void openUrl(part);
+          } else {
+            window.open(part, "_blank", "noreferrer");
+          }
+        }}
+      >
+        {part}
+      </a>
+    );
+  });
+}
 
 interface TerminalPanelProps {
   project: Project;
@@ -93,7 +119,7 @@ export function TerminalPanel({
               <div className={`terminal-line ${line.type}`} key={line.id}>
                 <span className="terminal-time">{line.time}</span>
                 <span className="terminal-level">{typeLabel[line.type]}</span>
-                <span className="terminal-text">{line.text}</span>
+                <span className="terminal-text">{renderText(line.text)}</span>
               </div>
             ))}
             <div ref={bottomRef} />

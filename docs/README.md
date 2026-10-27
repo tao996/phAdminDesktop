@@ -3,8 +3,8 @@
 | 文档 | 内容 |
 |---|---|
 | [current-state.md](current-state.md) | **最新进度、已验证场景、缺口、下一步（先读）** |
-| [architecture.md](architecture.md) | 总体架构、模块划分、任务模型、PHP 回退边界 |
-| [data-model.md](data-model.md) | SQLite 表结构、目录布局、导入/导出、密钥策略 |
+| [architecture.md](architecture.md) | 总体架构、模块划分、任务模型 |
+| [data-model.md](data-model.md) | SQLite 表结构、目录布局、密钥策略 |
 | [development.md](development.md) | 环境、命令、目录、开发顺序、测试要求 |
 | [roadmap.md](roadmap.md) | 分阶段计划、验收、风险 |
 | [ui-preview.md](ui-preview.md) | 界面布局、页面、交互稿 |
@@ -12,7 +12,7 @@
 
 ## 界面截图
 
-当前 UI 的服务器/项目/部署来自 SQLite（首次启动 seed）；容器、任务、同步、配置生成、部署、数据库备份/恢复已接入真实命令；数据库迁移/seed/下载等仍走 legacy 过渡。
+当前 UI 的服务器/项目/部署来自 SQLite（首次启动 seed）；容器、任务、同步、配置生成、部署、数据库备份/恢复、迁移 seed cron、Nginx/SSL、隧道、phpMyAdmin 均为原生实现；`php admin` 依赖已移除。
 
 | 页面 | 截图 |
 |---|---|

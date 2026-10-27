@@ -41,23 +41,58 @@ servers 1 ─── n deployments n ─── 1 projects
 
 ## 3. 表结构
 
+### 3.0 `templates`
+
+只存用户覆盖/自定义模板；内置默认编译在应用里（`src-tauri/templates/`）。
+
+```sql
+CREATE TABLE templates (
+  path        TEXT PRIMARY KEY,          -- 项目内相对路径，如 docker/mysql/my.cnf
+  content     TEXT NOT NULL,
+  kind        TEXT NOT NULL DEFAULT 'override'
+              CHECK (kind IN ('override', 'custom')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+解析顺序：`templates` 行 → 内置默认。删除行即恢复默认；自定义路径同样落在该表，
+渲染后写入 `generated/<deployment>/`，并通过 `template-manifest.json` 在上传阶段按原路径上传。
+
 ### 3.1 `servers`
 
 ```sql
 CREATE TABLE servers (
-  id            TEXT PRIMARY KEY,          -- UUID
-  name          TEXT NOT NULL UNIQUE,      -- prod / staging / local
-  kind          TEXT NOT NULL CHECK (kind IN ('ssh', 'filesystem')),
-  host          TEXT,                      -- kind=ssh 必填
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL UNIQUE,      -- 自动生成 user@host:port
+  host          TEXT NOT NULL,
+  environment   TEXT NOT NULL,             -- 当前固定 production
+  status        TEXT NOT NULL,             -- 当前固定 checking
+  latency       TEXT NOT NULL,             -- 占位 —
+  kind          TEXT NOT NULL DEFAULT 'ssh',
   port          INTEGER NOT NULL DEFAULT 22,
-  username      TEXT,
-  auth_type     TEXT CHECK (auth_type IN ('password', 'key', 'agent')),
-  key_path      TEXT,
-  password_ref  TEXT,                      -- keychain 引用，不存明文
-  created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL
+  username      TEXT NOT NULL DEFAULT '',  -- SSH 用户
+  key_path      TEXT NOT NULL DEFAULT '',  -- 私钥认证时的私钥路径
+  password      TEXT NOT NULL DEFAULT '',  -- 密码认证（明文存 SQLite，用户明确要求）
+  passphrase    TEXT NOT NULL DEFAULT '',  -- 私钥口令（同上）
+  docker_network TEXT NOT NULL DEFAULT 'phalcon-shared',  -- 共享 Docker 网络名
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
+
+认证方式由字段组合决定：
+
+- `key_path` 非空 → 私钥认证（`passphrase` 可选）；
+- 否则 → 密码认证（`password`）。
+
+> 注意：SSH 密码/口令按用户要求直接存 SQLite 明文（不再写 OS 凭据管理器）。
+> 数据库文件与备份需要按敏感文件管理。环境变量（`env_vars`）的密文仍走 keychain。
+
+`docker_network` 用于 compose 的共享外部网络：
+
+- 渲染 `.env` 时写入 `DOCKER_NETWORK`；
+- `docker-compose.yaml` 以 `external: true` 引用该网络；
+- 部署前若网络不存在，会自动执行 `docker network create <name>`。
 
 ### 3.2 `projects`
 
@@ -145,20 +180,35 @@ CREATE TABLE env_vars (
 
 - `is_secret=0`：`value` 存明文（如 `TZ`、`MYSQL_DATABASE`）；
 - `is_secret=1`：`value` 必须为 `NULL`，值在 OS keychain，`secret_ref` 指向；
-- 导出 legacy 配置时，从 keychain 取值，只写入临时文件，不能写回 DB/仓库。
+- 不再有 legacy 配置导入/导出；密钥只经系统凭据管理器读写，不写文件、不回写 DB。
+
+当前实现（`src-tauri/src/secrets.rs`、`env_vars.rs`）：
+
+- 变量名含 `PASSWORD` / `SECRET` / `TOKEN` / `PRIVATE_KEY` / `APP_KEY` 时自动判为密文；
+- keychain service 固定为 `PhAdmin Desktop`，account 为 `"{deployment_id}/{key}"`，`secret_ref` 存的就是这个 account；
+- 写入顺序：先写 keychain，成功后才写 `env_vars`（`value = NULL`）；keychain 不可用时导入只记 warning，不落明文；
+- 读取：渲染 `.env`、数据库备份/恢复取密码都走 keychain，读不到按空字符串处理；
+- 遗留行（`is_secret=1` 且 `value`、`secret_ref` 都为 `NULL`）视为“未设置”，需要在「配置 → 环境变量」重填；
+- 删除变量或改成明文时同步删除对应 keychain 凭据。
+
+`MYSQL_PASSWORD`、`REDIS_PASSWORD` 是部署必需项；缺失时 compose 模板会渲染出空口令。
 
 ### 3.7 `deployment_settings`
 
 ```sql
 CREATE TABLE deployment_settings (
   deployment_id     TEXT PRIMARY KEY REFERENCES deployments(id) ON DELETE CASCADE,
-  config_json       TEXT NOT NULL DEFAULT '{}',  -- app.config 覆盖
+  config_json       TEXT NOT NULL DEFAULT '{}',  -- app.config 覆盖（JSON，兼容旧数据）
+  config_php        TEXT NOT NULL DEFAULT '',    -- 项目创建时填写的 PHP 配置数组
   hooks_json        TEXT NOT NULL DEFAULT '{}',  -- afterInit / afterUpgrade
   docker_images_json TEXT NOT NULL DEFAULT '{}',
   router_json       TEXT NOT NULL DEFAULT '{}',
   nginx_json        TEXT NOT NULL DEFAULT '{}'
 );
 ```
+
+`config_php` 非空时优先作为 `{{CONFIG_OVERRIDES}}` 注入 `src/config/config.php`；
+为空时回退到 `config_json` 转 PHP 数组。
 
 用 JSON 存低频、结构不固定的配置；高频查询字段才单独建列。
 
@@ -217,16 +267,22 @@ CREATE TABLE schema_migrations (
 每个连接初始化：
 
 ```sql
-PRAGMA journal_mode = WAL;
+PRAGMA journal_mode = DELETE;   -- 单文件；写入期间短暂出现 -journal
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
-PRAGMA synchronous = NORMAL;
 ```
+
+说明：
+
+- 桌面端是单进程访问，不需要 WAL 的并发读能力，因此使用 DELETE 日志模式，
+  数据库目录通常只有一个 `phadmin.db`；
+- 写入事务进行中会短暂出现 `phadmin.db-journal`，提交或回滚后自动删除；
+- 如果从旧版本（WAL 模式）升级，下一次启动会把 `-wal` / `-shm` 合并回主库并删除；
+- 设备异常断电时，SQLite 会依赖 journal 自动回滚未完成事务。
 
 建议：
 
-- 单进程写者：Rust 侧一个 `Mutex<Connection>` 或 sqlx pool 的写连接；
-- 读多写少：WAL 允许读并发；
+- 单进程写者：Rust 侧一个 `Mutex<Connection>`；
 - 所有多表写入放在事务中；
 - 不在前端开 SQL 连接，不把 SQL 暴露给 WebView；
 - 每次 migration 前执行 `VACUUM INTO '<backup>'`。
@@ -239,9 +295,7 @@ PRAGMA synchronous = NORMAL;
 
 ```text
 <app_data_dir>/
-  phadmin.db
-  phadmin.db-wal
-  phadmin.db-shm
+  phadmin.db            # 单文件；写入时短暂出现 phadmin.db-journal
   backups/
     phadmin-<timestamp>.db
   generated/
@@ -370,3 +424,11 @@ CREATE INDEX idx_runs_deployment_started ON runs(deployment_id, started_at DESC)
 2. 部署配置用 JSON 还是完全规范化？（当前折中）
 3. 是否需要对 SQLite 做 SQLCipher 加密？（先 keychain + 文件权限）
 4. 是否需要多窗口同时写？若需要，改为单实例 + 后端串行写。
+## 全局设置
+
+`settings(key, value)` 保存应用级配置；目前使用 `local_repo_path`（本地仓库路径）。bundle / ftp 同步在 `projects.local_path` 为空时回退到该路径。
+## 服务器名称
+
+- `servers.name` 由用户填写（最长 64 字符，唯一），不再自动生成 `user@host:port`；`servers.id` 仍由名称生成稳定 slug；
+- 添加/修改服务器面板第一个字段为「名称」；
+- 项目创建/部署面板中的服务器选择只显示名称；服务器菜单显示「名称 + 用户 · SSH」，概览不显示 IP；IP 仅在服务器编辑表单中维护。

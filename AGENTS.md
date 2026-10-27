@@ -2,15 +2,14 @@
 
 ## Project
 
-PhAdmin Desktop 是 Phalcon Admin 的主机侧部署控制台，目标替代仓库根目录的 `php admin` CLI。
+PhAdmin Desktop 是 Phalcon Admin 的主机侧部署控制台，已完全接管原仓库根目录 `php admin` CLI 的功能。
 
-- **状态**：原生部署、健康检查、失败配置回滚、数据库备份/恢复均已实现并在 vbox / 真实 MySQL 容器验证；剩余工作见 [docs/current-state.md](docs/current-state.md)。
+- **状态**：原生部署、健康检查、失败配置回滚、数据库备份/恢复、密钥托管、Nginx/SSL、迁移/seed/cron、SSH 隧道、临时 phpMyAdmin 均已原生化；剩余工作见 [docs/current-state.md](docs/current-state.md)。
 - **技术栈**：Tauri 2、Rust、React 19、TypeScript、Vite、SQLite。
-- **SSH 登录**：当前实现使用 `key_path` + OpenSSH；不支持密码直连。
-- **远程验收**：vbox 测试机已实测 git/bundle/ftp/配置上传/备份恢复/同步全部/真实 Phalcon 5.23 原生部署（HTTP 200）。
+- **SSH 登录**：`host/port/user` + 密码 或 私钥（可选 passphrase）；密码/口令按用户要求直接存 SQLite，通过 `SSH_ASKPASS` 非交互登录（Windows OpenSSH 9.5 实测）。
+- **远程验收**：vbox 测试机已实测 git/bundle/ftp/配置上传/备份恢复/同步全部/真实 Phalcon 5.23 原生部署；vbox3 已实测全新部署（HTTP 200）、宿主机 Nginx 发布、数据库备份。
 - **主数据源**：SQLite（见 [docs/data-model.md](docs/data-model.md)）。
-- **legacy 引擎**：`php admin` 仅用于迁移、差分验收、过渡期回退，不是桌面端默认执行内核。
-- **旧部署配置**：`D:\demo\code\flutter\library\projects\phalcon-admin\deploy\projects\vbox*` 只是历史测试配置，不作为生产配置直接导入。
+- **不依赖 legacy**：桌面端不调用 `php admin`，不读取 `deploy/projects/*/server.php`；旧仓库仅作历史对照。
 
 ## 必读文档
 
@@ -46,25 +45,18 @@ cargo test
 cargo check
 ```
 
-legacy 参考（只读）：
-
-```powershell
-cd D:\demo\code\flutter\library\projects\phalcon-admin
-php admin config:export
-```
-
 ## Architecture Rules
 
-1. **SQLite 是唯一可写事实源**。不要把 PHP `server.php` 当第二主库。
+1. **SQLite 是唯一可写事实源**。
 2. **多服务器用 `(server_id, project_id)` 的 `deployments` 建模**。禁止按项目名共用生成物/备份/日志目录。
 3. **前端不直接访问 SQLite**；只调用 Rust command。
 4. **SQL 只在 `src-tauri/src/db/`**；Tauri command 只做校验 + 调 service。
 5. **进程参数用 argv 数组**，禁止 `shell: true` 或字符串拼接。
 6. **每个 deployment 同一时间只允许一个写任务**；长任务走 `runs` + 日志文件。
-7. **密码/密钥不落 SQLite 明文**；使用 OS keychain，DB 只存引用。
-8. **PHP fallback 单向导出**，不双向同步，不默认调用。
+7. **服务器 SSH 密码/口令存 SQLite（用户明确要求）；其他密钥（env_vars 密文）仍走 OS keychain**。数据库与备份按敏感文件管理。
+8. **不再有 PHP fallback**：桌面端是唯一执行内核；旧 `php admin` 仓库不参与运行。
 9. **生成物按 `deployment_id` 隔离**，不写旧仓库 `deploy/projects/`。
-10. **危险操作**（reset、db:migrate、db:seed、nginx:remove、cron-rm）必须二次确认。
+10. **危险操作**（reset、db:migrate、db:seed、nginx:remove、cron-rm、ssl）必须二次确认。
 
 ## Directory
 
@@ -79,39 +71,28 @@ AGENTS.md            本文件
 
 ## Current Task
 
-Phase 1（SQLite + 只读/导入）已完成：
+`php admin` 的全部功能已原生接管，桌面端是唯一执行内核：
 
-- `rusqlite` + `servers` / `projects` / `deployments` 三表 + 启动 seed；
-- `domains` / `env_vars` / `sync_items` / `deployment_settings` / `runs` 表；
-- `load_workspace` 只读 command；
-- `import_legacy_config`：解析 `php admin config:export` JSON，设置页可导入；
-- `run_command`：本地 filesystem / 系统 `ssh` 执行，stdout/stderr 事件 + `runs`；
-- 终端白名单命令：`docker/php/git/ssh/ls/pwd/whoami/composer`，前端 argv 解析，不经过 shell；
-- `list_runs` / `cancel_run`：终端「任务」面板查看历史并取消；
-- 运行输出持久化到 `logs/<run_id>.log`，`read_run_log` 供任务面板查看；
-- `get_containers`：`docker compose ps --format json` 解析，Containers 面板自动刷新；
-- 容器启动/停止/重启/日志通过 `run_command` 执行；
-- Overview 容器统计/最近活动接入 `get_containers` / `list_runs`；数据库备份/恢复已接原生 mysqldump；
-- Deploy「开始升级」调用 `start_deploy`：升级 → compose up → Nginx reload → 可选重启 PHP；失败中止，同 deployment 防并发；
-- 步骤 run 关联 `deploy_runs`，任务面板显示步骤；
-- Deploy 面板通过 `preview_deploy_plan` 展示真实步骤/命令。
-- 本地 filesystem / SSH git 同步项支持 clone / pull（`sync_git_item`）；同步项级锁；
-- 本地 / SSH bundle 同步支持 git bundle（`sync_bundle_item`）；ftp/SFTP 基础同步（`sync_ftp_item`）；
-- 配置预览弹窗只读展示 sync items 与 settings JSON；
-- rendered .env / nginx / compose 预览，可写入本地 generated 并检测变更状态。
-
-下一步：
-
-- ftp / SFTP 同步 / 配置渲染。
-
-不要提前实现部署/SSH/Docker 写操作。先把数据层和只读链路打通。
+- **部署**：`handleStartDeploy` → 同步全部 → `prepare_runtime_assets` → 渲染并上传 `.env` / nginx / compose / `src/config/config.php` / 容器配置 → `start_deploy`（确保共享网络存在 → compose up → nginx reload → 可选重启 php → 健康检查）→ 失败恢复部署前配置；
+- **容器**：`docker compose` 命令经 `run_command` 执行（ps / logs / restart / up -d）；
+- **配置**：`render.rs` 生成、`config_apply.rs` 上传回读、备份/恢复/清理；
+- **Nginx（宿主机）**：`publish_nginx_config` / `remove_nginx_config` / `reload_host_nginx` / `read_nginx_log` / `check_server`；
+- **SSL**：`enable_ssl`（certbot webroot + 证书链接 + 切换 HTTPS 配置）；
+- **数据库**：`backup_database` / `list_database_backups` / `restore_database_backup`（恢复前快照）、`migrate_database`、`seed_database`、`install_backup_cron` / `remove_backup_cron`；
+- **项目**：`create_project` / `update_project`（Remote/Local + 部署目录 + 可编辑 APP_NAME/MYSQL_DATABASE + OPEN_PORT/域名/SSL + 代码同步项 + PHP 配置）、`reset_project`（主仓库 + git/bundle 同步目录 `git reset --hard`）、`generate_git_deploy_key`；
+- **模板**：`templates.rs` + `templates` 表存覆盖/自定义；内置默认在 `src-tauri/templates/`；`.env`/compose/config.php/三个容器配置统一走 `{{KEY}}` 渲染，自定义模板按 manifest 上传；
+- **临时通道**：`start_ssh_tunnel` / `stop_ssh_tunnel` / `list_ssh_tunnels`、`start_phpmyadmin` / `stop_phpmyadmin`；
+- **密钥**：`secrets.rs` 走 OS 凭据管理器，`env_vars.rs` 管理环境变量（`/etc` 密码不落库）；
+- **空库启动**：`db::open` 只建表、不 seed；服务器由顶栏「服务器管理」新增/修改；项目由「添加项目」创建，列表右键「修改项目」复用同一表单（`create_project` / `update_project`），部署编排待补；
+- **前端**：所有动作通过 `phadmin:<action>` 由 `App.tsx` 统一分发，不再拼 `php admin` 命令。
 
 ## Testing
 
 - Rust：`cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`；
 - 前端：`npm run typecheck`、`npm run build`；
 - SQLite：migration 升级/恢复测试；
-- 配置渲染：与 PHP 输出做 golden/diff；
+- 密钥：`cargo test keychain -- --ignored`、`cargo test secret_round_trips -- --ignored`（真机凭据管理器）；
+- 配置渲染：compose/nginx/env 模板单测，不再与 PHP 输出比对；
 - 没有人工逐行评审，测试是唯一验收标准；编译通过不等于完成。
 
 ## Code Style
@@ -124,11 +105,13 @@ Phase 1（SQLite + 只读/导入）已完成：
 ## 安全
 
 - WebView CSP 只允许本地资源；
-- 不执行任意 shell；参数白名单/校验；
+- 不执行任意 shell；参数白名单/校验（终端白名单不含 `php`）；
 - 日志脱敏 password/secret/token/key；
 - SQLite DB、日志、导出配置不提交 git（见 `.gitignore`）。
 
 ## Legacy 下线
 
-在 desktop 覆盖全部主流程并通过真实项目回归前，不要删除/修改 legacy `deploy`。
-PHP fallback 只用于迁移和应急，不参与日常部署。
+桌面端已覆盖全部主流程并通过真实项目回归，`php admin` 依赖已移除：
+不再有配置导入、legacy deploy 步骤、PHP fallback 或 `php` 终端白名单。
+旧仓库 `D:\demo\code\flutter\library\projects\phalcon-admin` 仅作历史参考，不读取、不调用、不回写。
+

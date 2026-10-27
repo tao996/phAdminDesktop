@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import type { Activity, Backup, Project, Server } from "../data/mock";
+import type { Activity, Project, Server } from "../data/mock";
 import type { BackupEntry } from "../api/workspace";
 import {
   ContainersPanel,
   DatabasePanel,
   DeployPanel,
+  FilesPanel,
   LogsPanel,
   NginxPanel,
   OverviewPanel,
@@ -15,34 +16,33 @@ import { Icon } from "./Icon";
 
 interface WorkspaceProps {
   project: Project | null;
-  server: Server;
+  server: Server | null;
   section: WorkspaceSection;
   activities: Activity[];
-  backups: Backup[];
   onSectionChange: (section: WorkspaceSection) => void;
   onAction: (command: string, label: string) => void;
   onNotify: (message: string) => void;
   onTestConnection: () => void;
   onOpenRuns: () => void;
   onExecuteCommand: (command: string) => void;
-  onStartDeploy: (restartPhp: boolean, native: boolean) => void;
+  onStartDeploy: (restartPhp: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
   onSyncFtpItem: (itemId: string) => Promise<void>;
   onAccessLog: () => void;
   onReloadNginx: () => void;
-  onDbCommand: (args: string[], label: string) => void;
   onNativeDbBackup: () => void;
   onListNativeBackups: () => Promise<BackupEntry[]>;
   onRestoreNativeBackup: (name: string) => Promise<void>;
+  onDownloadNativeBackup: (name: string) => Promise<void>;
   onSyncAll: () => Promise<void>;
-  onPreviewConfig: () => void;
   refreshVersion: number;
 }
 
 const sections: { id: WorkspaceSection; label: string; icon: "activity" | "rocket" | "box" | "globe" | "database" | "file-text" }[] = [
   { id: "overview", label: "概览", icon: "activity" },
   { id: "deploy", label: "部署与升级", icon: "rocket" },
+  { id: "files", label: "文件预览", icon: "file-text" },
   { id: "containers", label: "容器", icon: "box" },
   { id: "nginx", label: "Nginx", icon: "globe" },
   { id: "database", label: "数据库", icon: "database" },
@@ -54,7 +54,6 @@ export function Workspace({
   server,
   section,
   activities,
-  backups,
   onSectionChange,
   onAction,
   onNotify,
@@ -67,12 +66,11 @@ export function Workspace({
   onSyncFtpItem,
   onAccessLog,
   onReloadNginx,
-  onDbCommand,
   onNativeDbBackup,
   onListNativeBackups,
   onRestoreNativeBackup,
+  onDownloadNativeBackup,
   onSyncAll,
-  onPreviewConfig,
   refreshVersion,
 }: WorkspaceProps) {
   const [moreOpen, setMoreOpen] = useState(
@@ -86,15 +84,19 @@ export function Workspace({
     return () => window.removeEventListener("click", close);
   }, [moreOpen]);
 
-  if (!project) {
+  if (!project || !server) {
     return (
       <section className="workspace">
         <div className="workspace-empty">
           <span className="empty-mark">
             <Icon name="layers" size={26} />
           </span>
-          <h2>选择一个项目</h2>
-          <p>从左侧项目列表打开一个项目，或添加新的部署。</p>
+          <h2>{server ? "选择一个项目" : "工作区为空"}</h2>
+          <p>
+            {server
+              ? "从左侧项目列表打开一个项目，或添加新的部署。"
+              : "启动不再自动生成演示数据；服务器 / 项目 / 部署的创建入口正在实现中。"}
+          </p>
         </div>
       </section>
     );
@@ -177,7 +179,7 @@ export function Workspace({
                 <button
                   type="button"
                   onClick={() => {
-                    onAction(`php admin app:${project.name} dc:log`, "查看容器日志");
+                    onAction("docker compose logs --tail=200", "查看容器日志");
                     setMoreOpen(false);
                   }}
                 >
@@ -200,7 +202,7 @@ export function Workspace({
                   type="button"
                   className="danger"
                   onClick={() => {
-                    onAction(`php admin app:${project.name} reset`, "重置代码");
+                    onAction("phadmin:reset", "重置代码");
                     setMoreOpen(false);
                   }}
                 >
@@ -249,9 +251,9 @@ export function Workspace({
             onSyncBundleItem={onSyncBundleItem}
             onSyncFtpItem={onSyncFtpItem}
             onSyncAll={onSyncAll}
-            onPreviewConfig={onPreviewConfig}
           />
         )}
+        {section === "files" && <FilesPanel project={project} />}
         {section === "containers" && (
           <ContainersPanel
             project={project}
@@ -274,12 +276,11 @@ export function Workspace({
           <DatabasePanel
             project={project}
             server={server}
-            backups={backups}
             onAction={onAction}
-            onDbCommand={onDbCommand}
             onNativeBackup={onNativeDbBackup}
             onListNativeBackups={onListNativeBackups}
             onRestoreNativeBackup={onRestoreNativeBackup}
+            onDownloadNativeBackup={onDownloadNativeBackup}
           />
         )}
         {section === "logs" && <LogsPanel project={project} />}

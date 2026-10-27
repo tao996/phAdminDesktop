@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,7 +16,7 @@ use crate::AppState;
 static RUN_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 const ALLOWED_PROGRAMS: &[&str] = &[
-    "docker", "php", "git", "ssh", "ls", "pwd", "whoami", "composer", "curl",
+    "docker", "git", "ssh", "ls", "pwd", "whoami", "composer", "curl",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -57,6 +57,9 @@ pub(crate) struct Target {
     pub(crate) port: i64,
     pub(crate) username: String,
     pub(crate) key_path: String,
+    pub(crate) password: Option<String>,
+    pub(crate) passphrase: Option<String>,
+    pub(crate) docker_network: String,
 }
 
 fn next_run_id() -> String {
@@ -96,12 +99,15 @@ pub(crate) fn load_target(
 ) -> Result<Target, String> {
     connection
         .query_row(
-            "SELECT d.remote_path, s.kind, s.host, s.port, s.username, s.key_path
+            "SELECT d.remote_path, s.kind, s.host, s.port, s.username, s.key_path,
+                    s.password, s.passphrase, s.docker_network
              FROM deployments d
              JOIN servers s ON s.id = d.server_id
              WHERE d.id = ?1",
             params![deployment_id],
             |row| {
+                let password: String = row.get(6)?;
+                let passphrase: String = row.get(7)?;
                 Ok(Target {
                     remote_path: row.get(0)?,
                     kind: row.get(1)?,
@@ -109,10 +115,46 @@ pub(crate) fn load_target(
                     port: row.get(3)?,
                     username: row.get(4)?,
                     key_path: row.get(5)?,
+                    password: (!password.is_empty()).then_some(password),
+                    passphrase: (!passphrase.is_empty()).then_some(passphrase),
+                    docker_network: row.get(8)?,
                 })
             },
         )
         .map_err(|error| format!("部署不存在或服务器不可用: {error}"))
+}
+
+/// 有密码/密钥口令时用 SSH_ASKPASS 非交互喂给 ssh/scp；否则维持 BatchMode。
+fn configure_auth(command: &mut Command, target: &Target) -> Result<(), String> {
+    let secret = target.password.as_deref().or(target.passphrase.as_deref());
+
+    match secret {
+        Some(secret) => {
+            let askpass = std::env::current_exe()
+                .map_err(|error| format!("定位 SSH askpass 失败: {error}"))?;
+            command
+                .env("SSH_ASKPASS", askpass)
+                .env("SSH_ASKPASS_REQUIRE", "force")
+                .env("PHADMIN_ASKPASS_MODE", "1")
+                // 主程序启动时会读取该变量并直接输出，不再初始化 Tauri。
+                .env("PHADMIN_SSH_SECRET", secret)
+                .arg("-o")
+                .arg("NumberOfPasswordPrompts=1");
+            if target.password.is_some() && target.key_path.trim().is_empty() {
+                command
+                    .arg("-o")
+                    .arg("PreferredAuthentications=password,keyboard-interactive")
+                    .arg("-o")
+                    .arg("PubkeyAuthentication=no");
+            } else {
+                command.arg("-o").arg("PreferredAuthentications=publickey");
+            }
+        }
+        None => {
+            command.arg("-o").arg("BatchMode=yes");
+        }
+    }
+    Ok(())
 }
 
 fn build_ssh_command(target: &Target, remote: &str) -> Result<Command, String> {
@@ -127,11 +169,10 @@ fn build_ssh_command(target: &Target, remote: &str) -> Result<Command, String> {
     let mut command = Command::new("ssh");
     command
         .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
         .arg("StrictHostKeyChecking=accept-new")
         .arg("-o")
         .arg("ConnectTimeout=10");
+    configure_auth(&mut command, target)?;
     if !target.key_path.trim().is_empty() {
         command.arg("-i").arg(target.key_path.trim());
     }
@@ -293,6 +334,74 @@ pub(crate) fn upload_dir_to_target(
     scp_target(target, local_path, remote_path, true)
 }
 
+/// 通过临时文件把文本内容推到目标机；调用方负责保证目录存在。
+pub(crate) fn upload_text_to_target(
+    target: &Target,
+    remote_path: &str,
+    content: &str,
+) -> Result<(), String> {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let name = Path::new(remote_path)
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "upload".to_string());
+    let local = std::env::temp_dir().join(format!("phadmin-{millis}-{name}"));
+    std::fs::write(&local, content).map_err(|error| format!("写入临时文件失败: {error}"))?;
+    let result = upload_to_target(target, &local, remote_path);
+    let _ = std::fs::remove_file(&local);
+    result
+}
+
+/// 启动一条常驻 SSH 隧道（-N），由调用方负责保存 Child 并终止。
+pub(crate) fn spawn_ssh_tunnel(
+    target: &Target,
+    local_port: u16,
+    remote_host: &str,
+    remote_port: u16,
+) -> Result<Child, String> {
+    if target.kind == "filesystem" {
+        return Err("filesystem 目标没有 SSH 隧道".to_string());
+    }
+    if target.host.trim().is_empty() {
+        return Err("服务器未配置 host".to_string());
+    }
+    let user = if target.username.trim().is_empty() {
+        "root"
+    } else {
+        target.username.trim()
+    };
+
+    let mut command = Command::new("ssh");
+    command
+        .arg("-o")
+        .arg("StrictHostKeyChecking=accept-new")
+        .arg("-o")
+        .arg("ExitOnForwardFailure=yes")
+        .arg("-o")
+        .arg("ServerAliveInterval=30");
+    configure_auth(&mut command, target)?;
+    command.arg("-N").arg("-L").arg(format!(
+        "127.0.0.1:{local_port}:{remote_host}:{remote_port}"
+    ));
+    if !target.key_path.trim().is_empty() {
+        command.arg("-i").arg(target.key_path.trim());
+    }
+    command
+        .arg("-p")
+        .arg(target.port.to_string())
+        .arg(format!("{user}@{}", target.host.trim()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    command
+        .spawn()
+        .map_err(|error| format!("启动 SSH 隧道失败: {error}"))
+}
+
 fn scp_target(
     target: &Target,
     local_path: &Path,
@@ -310,11 +419,10 @@ fn scp_target(
     }
     command
         .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
         .arg("StrictHostKeyChecking=accept-new")
         .arg("-P")
         .arg(target.port.to_string());
+    configure_auth(&mut command, target)?;
     if !target.key_path.trim().is_empty() {
         command.arg("-i").arg(target.key_path.trim());
     }
@@ -706,6 +814,9 @@ mod tests {
             port: 22,
             username: String::new(),
             key_path: String::new(),
+            password: None,
+            passphrase: None,
+            docker_network: "phalcon-shared".to_string(),
         };
         let command = build_command(&target, "docker", &["compose".to_string()]).expect("command");
         assert_eq!(command.get_program(), "docker");
@@ -724,6 +835,9 @@ mod tests {
             port: 22,
             username: String::new(),
             key_path: String::new(),
+            password: None,
+            passphrase: None,
+            docker_network: "phalcon-shared".to_string(),
         };
         assert!(target_path_exists(&target, "Cargo.toml").expect("existing path"));
         assert!(!target_path_exists(&target, "missing-path-for-test").expect("missing path"));
@@ -738,6 +852,9 @@ mod tests {
             port: 2222,
             username: "deploy".to_string(),
             key_path: "C:/keys/id_ed25519".to_string(),
+            password: None,
+            passphrase: None,
+            docker_network: "phalcon-shared".to_string(),
         };
         let command = build_command(&target, "docker", &["compose".to_string()]).expect("command");
         let args: Vec<_> = command
@@ -754,6 +871,86 @@ mod tests {
                 .is_some_and(|arg| arg.contains("cd '/data/demo'"))
         );
         assert!(!args.contains(&"-lc".to_string()));
+    }
+
+    #[test]
+    fn loads_password_from_servers_table() {
+        let connection = rusqlite::Connection::open_in_memory().expect("open memory db");
+        crate::db::migrate(&connection).expect("migrate");
+        connection
+            .execute(
+                "INSERT INTO servers
+                    (id, name, host, environment, status, latency, kind, port, username,
+                     key_path, password, passphrase)
+                 VALUES ('s1', 'u@h:22', 'h', 'production', 'checking', '—', 'ssh', 22, 'u',
+                         '', 'pw', '')",
+                [],
+            )
+            .expect("server");
+        connection
+            .execute(
+                "INSERT INTO projects (id, name, title) VALUES ('p1', 'p', 'P')",
+                [],
+            )
+            .expect("project");
+        connection
+            .execute(
+                "INSERT INTO deployments (id, server_id, project_id, remote_path)
+                 VALUES ('d1', 's1', 'p1', '/data/p')",
+                [],
+            )
+            .expect("deployment");
+
+        let target = load_target(&connection, "d1").expect("target");
+        assert_eq!(target.password.as_deref(), Some("pw"));
+        assert!(target.passphrase.is_none());
+        assert!(target.key_path.is_empty());
+    }
+
+    #[test]
+    fn builds_ssh_command_with_password_askpass() {
+        let target = Target {
+            remote_path: "/data/demo".to_string(),
+            kind: "ssh".to_string(),
+            host: "example.com".to_string(),
+            port: 22,
+            username: "tester".to_string(),
+            key_path: String::new(),
+            password: Some("s3cret".to_string()),
+            passphrase: None,
+            docker_network: "phalcon-shared".to_string(),
+        };
+        let command = build_command(&target, "docker", &["compose".to_string()]).expect("command");
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert!(!args.contains(&"BatchMode=yes".to_string()));
+        assert!(
+            args.contains(&"PreferredAuthentications=password,keyboard-interactive".to_string())
+        );
+        assert!(args.contains(&"PubkeyAuthentication=no".to_string()));
+
+        let envs: Vec<(String, String)> = command
+            .get_envs()
+            .filter_map(|(key, value)| {
+                value.map(|value| {
+                    (
+                        key.to_string_lossy().to_string(),
+                        value.to_string_lossy().to_string(),
+                    )
+                })
+            })
+            .collect();
+        assert!(
+            envs.iter()
+                .any(|(key, value)| key == "PHADMIN_SSH_SECRET" && value == "s3cret")
+        );
+        assert!(
+            envs.iter()
+                .any(|(key, value)| key == "SSH_ASKPASS_REQUIRE" && value == "force")
+        );
+        assert!(envs.iter().any(|(key, _)| key == "SSH_ASKPASS"));
     }
 
     #[test]
@@ -798,6 +995,9 @@ mod tests {
             port: 22,
             username: String::new(),
             key_path: String::new(),
+            password: None,
+            passphrase: None,
+            docker_network: "phalcon-shared".to_string(),
         };
         let containers = collect_containers(&target).expect("collect containers");
         assert!(!containers.is_empty(), "expected at least one container");

@@ -10,8 +10,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::AppState;
 use crate::db;
-use crate::legacy;
-use crate::models::{DeployRunRecord, DeploymentConfig, ImportSummary, RunRecord, Workspace};
+use crate::models::{DeployRunRecord, DeploymentConfig, RunRecord, Server, ServerInput, Workspace};
 use crate::runner;
 
 fn shell_quote(value: &str) -> String {
@@ -80,15 +79,109 @@ pub fn load_workspace(state: State<'_, AppState>) -> Result<Workspace, String> {
 }
 
 #[tauri::command]
-pub fn import_legacy_config(
-    state: State<'_, AppState>,
-    json: String,
-) -> Result<ImportSummary, String> {
-    let mut connection = state
+pub fn create_server(state: State<'_, AppState>, input: ServerInput) -> Result<Server, String> {
+    let connection = state
         .db
         .lock()
         .map_err(|error| format!("数据库连接被占用: {error}"))?;
-    legacy::import(&mut connection, &json).map_err(|error| format!("导入 legacy 配置失败: {error}"))
+    db::create_server(&connection, &input)
+}
+
+#[tauri::command]
+pub fn get_server_config(
+    state: State<'_, AppState>,
+    server_id: String,
+) -> Result<crate::models::ServerConfig, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    db::load_server_config(&connection, &server_id)
+}
+
+#[tauri::command]
+pub fn update_server(
+    state: State<'_, AppState>,
+    server_id: String,
+    input: ServerInput,
+) -> Result<Server, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    db::update_server(&connection, &server_id, &input)
+}
+
+#[tauri::command]
+pub fn count_server_references(
+    state: State<'_, AppState>,
+    server_id: String,
+) -> Result<i64, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    db::count_server_references(&connection, &server_id)
+}
+
+#[tauri::command]
+pub fn delete_server(state: State<'_, AppState>, server_id: String) -> Result<(), String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    db::delete_server(&connection, &server_id)
+}
+
+#[tauri::command]
+pub fn get_local_repo_path(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    db::get_setting(&connection, "local_repo_path")
+}
+
+#[tauri::command]
+pub fn set_local_repo_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    db::set_setting(&connection, "local_repo_path", path.trim())
+}
+
+#[tauri::command]
+pub fn open_app_data_dir(app: AppHandle) -> Result<String, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("获取数据目录失败: {error}"))?;
+    std::fs::create_dir_all(&directory).map_err(|error| format!("创建数据目录失败: {error}"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(&directory)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {error}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&directory)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {error}"))?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open")
+            .arg(&directory)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {error}"))?;
+    }
+
+    Ok(directory.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -320,7 +413,10 @@ pub fn sync_bundle_item(
             .map_err(|error| format!("数据库连接被占用: {error}"))?;
         connection
             .query_row(
-                "SELECT s.kind, p.local_path, d.remote_path, i.method, i.branch, i.path
+                "SELECT s.kind,
+                        COALESCE(NULLIF(p.local_path, ''),
+                                 (SELECT value FROM settings WHERE key = 'local_repo_path'), ''),
+                        d.remote_path, i.method, i.branch, i.path
                  FROM sync_items i
                  JOIN deployments d ON d.id = i.deployment_id
                  JOIN projects p ON p.id = d.project_id
@@ -370,6 +466,9 @@ pub fn sync_bundle_item(
             runner::load_target(&connection, &deployment_id)?
         };
 
+        if local_path.trim().is_empty() {
+            return Err("未配置本地仓库路径：请在设置中填写「本地仓库」".to_string());
+        }
         let source = if path.trim().is_empty() {
             PathBuf::from(local_path)
         } else {
@@ -382,6 +481,12 @@ pub fn sync_bundle_item(
         };
         if !source.join(".git").exists() {
             return Err(format!("本地源不是 git 仓库: {}", source.display()));
+        }
+        if source.join(".git/shallow").exists() {
+            return Err(format!(
+                "本地仓库是浅克隆，bundle 会缺少历史对象；请先执行 git -C {} fetch --unshallow",
+                source.display()
+            ));
         }
         if kind == "filesystem"
             && let Some(parent) = dest.parent()
@@ -434,6 +539,8 @@ pub fn sync_bundle_item(
             } else {
                 run(vec![
                     "clone".to_string(),
+                    "-b".to_string(),
+                    branch.clone(),
                     bundle_text,
                     dest.to_string_lossy().to_string(),
                 ])?;
@@ -467,8 +574,9 @@ pub fn sync_bundle_item(
                 .parent()
                 .map(|value| value.to_string_lossy().to_string())
                 .unwrap_or_else(|| "/tmp".to_string());
+            runner::ensure_target_dir(&target, &dest_text)?;
             let script = format!(
-                "set -e\ntrap 'rm -f {bundle}' EXIT\nif [ -d {git_dir} ]; then\n  git -C {dest} fetch {bundle} {branch}\n  git -C {dest} merge --ff-only FETCH_HEAD\nelse\n  mkdir -p {parent}\n  git clone {bundle} {dest}\nfi\n",
+                "set -e\ntrap 'rm -f {bundle}' EXIT\nif [ -d {git_dir} ]; then\n  git -C {dest} fetch {bundle} {branch}\n  if ! git -C {dest} merge --ff-only FETCH_HEAD; then\n    echo '远程仓库历史与本地不一致，强制对齐到本地提交'\n    git -C {dest} reset --hard FETCH_HEAD\n  fi\nelse\n  mkdir -p {parent}\n  git clone -b {branch} {bundle} {dest}\nfi\n",
                 bundle = shell_quote(&remote_bundle),
                 git_dir = shell_quote(&format!("{dest_text}/.git")),
                 dest = shell_quote(&dest_text),
@@ -558,7 +666,9 @@ pub fn sync_ftp_item(
             .map_err(|error| format!("数据库连接被占用: {error}"))?;
         connection
             .query_row(
-                "SELECT p.local_path, d.remote_path, i.method, i.path, i.excludes_json
+                "SELECT COALESCE(NULLIF(p.local_path, ''),
+                                 (SELECT value FROM settings WHERE key = 'local_repo_path'), ''),
+                        d.remote_path, i.method, i.path, i.excludes_json
                  FROM sync_items i
                  JOIN deployments d ON d.id = i.deployment_id
                  JOIN projects p ON p.id = d.project_id
@@ -598,6 +708,9 @@ pub fn sync_ftp_item(
     let result = (|| -> Result<String, String> {
         if method != "ftp" {
             return Err(format!("当前同步项不是 ftp，method={method}"));
+        }
+        if local_path.trim().is_empty() {
+            return Err("未配置本地仓库路径：请在设置中填写「本地仓库」".to_string());
         }
         let source = if path.trim().is_empty() {
             PathBuf::from(local_path)

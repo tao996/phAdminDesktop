@@ -2,10 +2,10 @@
 
 > 状态：静态 UI 原型已实现；当前版本已在原型上接入 SQLite、任务、容器、同步、配置生成与部署编排。本文件保留早期原型说明，实际行为以 README / architecture / development 为准。
 > 主数据源：SQLite
-> 执行内核：Tauri 2 / Rust 原生（`php admin` 仅作迁移与回退参考）
+> 执行内核：Tauri 2 / Rust 原生（已移除 `php admin` 依赖）
 > 日期：2026-10-24
 
-> 说明：本文保留 `php admin` 命令映射，用于**功能对照和回退参考**；桌面端默认执行路径以 [architecture.md](architecture.md) 的 Rust 原生实现为准。
+> 说明：本文中的 `php admin` 命令映射是**历史对照**，仅用于理解功能语义；桌面端对应实现已在 `src-tauri/src/` 中原生化，不再调用旧 CLI。
 
 ---
 

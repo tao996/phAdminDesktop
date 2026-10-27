@@ -1,6 +1,6 @@
 # 路线图
 
-> 状态：Phase 0–2 已完成；Phase 3–4 基础能力已完成，数据库备份/恢复已原生化，生产策略仍待补；Phase 5 进行中。
+> 状态：Phase 0–5 已完成，`php admin` 全量原生化；新增运维命令待真实服务器回归。
 > 最新进度与缺口见 [current-state.md](current-state.md)。
 > 关联：[architecture.md](architecture.md) · [data-model.md](data-model.md)
 
@@ -12,9 +12,9 @@
 
 ### 下线条件
 
-- `init` / `upgrade` / `reset` / `dc:*` / `nginx:*` / `db:*` / SSL 主流程全部由桌面端覆盖；
+- `init` / `upgrade` / `reset` / `dc:*` / `nginx:*` / `db:*` / SSL / cron / 隧道 / phpMyAdmin 全部由桌面端原生覆盖；
 - 至少 1 个真实项目在 prod + staging 完成回归；
-- SQLite 导入/导出、PHP 回退路径验证通过；
+- 桌面端数据自洽（SQLite 单写，无 PHP 导入/回退依赖）；
 - 关键路径自动化测试 + CI 门禁；
 - 有版本化安装包和回滚方案。
 
@@ -35,7 +35,7 @@
 - migrations：`servers`、`projects`、`deployments`；
 - Rust repository + `list_*` commands；
 - UI：服务器列表、项目 × 服务器矩阵；
-- 从 `php admin config:export` 导入一次真实配置；
+- 从 `php admin config:export` 导入一次真实配置（Phase 5 已移除该入口）；
 - 只读：不执行任何部署动作。
 
 验收：
@@ -90,13 +90,13 @@
 - `db:proxy` 后台运行可停止；
 - 危险操作有确认。
 
-### Phase 5：迁移与下线（进行中）
+### Phase 5：移除 legacy 依赖（已完成）
 
-- SQLite → legacy PHP 配置导出；
-- 差分测试全量通过；
-- 文档/安装包/自动更新；
-- 观察期；
-- PHP deploy 标记 legacy，最终移出主流程。
+- 删除 `import_legacy_config` 与设置页导入；
+- 删除 deploy 的 legacy upgrade 步骤与 `native` 开关；
+- 终端白名单移除 `php`；
+- 新增原生 Nginx / SSL / 数据库迁移 seed cron / 重置 / 隧道 / phpMyAdmin；
+- 文档同步为“桌面端唯一执行内核”。
 
 ---
 
@@ -148,7 +148,7 @@
 - [x] SQLite 三表 + seed（`servers/projects/deployments`）
 - [x] 只读 `load_workspace` + UI 从 SQLite 加载
 - [x] 架构/数据模型/开发文档
-- [x] legacy `config:export` 导入
+- [x] legacy `config:export` 导入（Phase 5 已移除）
 - [x] sync_items / runs 表（schema + 导入）
 - [x] 基础任务执行（本地/ssh + stdout/stderr + runs）
 - [x] 任务历史面板 / 取消按钮
@@ -189,4 +189,14 @@
 - [x] 数据库备份原生实现（mysqldump 到本地；真实 MySQL 容器验证）
 - [x] 数据库备份列表/恢复原生实现（真实 MySQL 容器验证）
 - [x] 恢复前自动数据库快照
-- [ ] PHP 回退验收
+- [x] 密钥/密码改存系统凭据管理器（Windows Credential Manager 真机实测，SQLite 只存 `secret_ref`）
+- [x] 配置弹窗「环境变量」页（补录 / 修改 / 删除密钥，缺失必需密码告警）
+- [x] 移除 legacy 导入、legacy deploy 步骤与 `php` 终端白名单（`php admin` 依赖清零）
+- [x] 宿主机 Nginx 发布 / 移除 / reload / 日志 / 环境检查
+- [x] SSL 原生申请（certbot webroot + 证书链接 + HTTPS 配置）
+- [x] 数据库结构迁移 / seed（上传 SQL）/ 服务器 crontab 定时备份
+- [x] 重置代码 / 生成部署密钥
+- [x] SSH 隧道 / 临时 phpMyAdmin 原生进程管理
+- [ ] 新增运维命令的真实服务器回归（Nginx / SSL / cron / 隧道 / phpMyAdmin）
+- [ ] 部署前强校验必需密钥
+- [ ] 添加项目落 SQLite

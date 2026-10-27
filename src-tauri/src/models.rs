@@ -53,11 +53,38 @@ pub struct Workspace {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ImportSummary {
-    pub servers: usize,
-    pub projects: usize,
-    pub deployments: usize,
-    pub sync_items: usize,
+pub struct ServerInput {
+    #[serde(default)]
+    pub name: String,
+    pub host: String,
+    #[serde(default = "default_ssh_port")]
+    pub port: i64,
+    pub user: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub key_file: String,
+    #[serde(default)]
+    pub key_passphrase: String,
+    #[serde(default)]
+    pub docker_network: String,
+}
+
+fn default_ssh_port() -> i64 {
+    22
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerConfig {
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub user: String,
+    pub password: String,
+    pub key_file: String,
+    pub key_passphrase: String,
+    pub docker_network: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

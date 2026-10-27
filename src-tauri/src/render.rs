@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
 
@@ -7,28 +8,36 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 
 use crate::AppState;
-
-const ENV_TEMPLATE: &str = include_str!("../templates/env.example");
-const COMPOSE_TEMPLATE: &str = include_str!("../templates/docker-compose.yaml");
-const CONFIG_TEMPLATE: &str = include_str!("../templates/config.php.template");
+use crate::secrets::SecretStore;
 
 #[cfg(test)]
 pub(crate) fn render_env(project: &str, remote_path: &str, nginx_port: i64) -> String {
-    render_env_with_secrets(project, remote_path, nginx_port, "", "")
+    render_env_template(
+        crate::templates::builtin_content(".env").expect("builtin env"),
+        project,
+        remote_path,
+        nginx_port,
+        "",
+        "",
+        "phalcon-shared",
+    )
 }
 
-fn render_env_with_secrets(
+pub(crate) fn render_env_template(
+    template: &str,
     project: &str,
     remote_path: &str,
     nginx_port: i64,
     mysql_password: &str,
     redis_password: &str,
+    docker_network: &str,
 ) -> String {
-    ENV_TEMPLATE
+    template
         .replace("{{TZ}}", "Asia/Shanghai")
         .replace("{{APP_NAME}}", project)
         .replace("{{DATA_PATH_HOST}}", remote_path)
         .replace("{{NGINX_PORT}}", &nginx_port.to_string())
+        .replace("{{DOCKER_NETWORK}}", docker_network)
         .replace("{{MYSQL_PASSWORD}}", mysql_password)
         .replace("{{MYSQL_USER}}", project)
         .replace("{{MYSQL_DATABASE}}", project)
@@ -39,17 +48,78 @@ fn render_env_with_secrets(
         .replace("{{REDIS_IMAGE}}", "redis:7.2-alpine")
 }
 
-fn env_secret(connection: &rusqlite::Connection, deployment_id: &str, key: &str) -> String {
-    connection
-        .query_row(
-            "SELECT value FROM env_vars WHERE deployment_id = ?1 AND key = ?2",
-            rusqlite::params![deployment_id, key],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .ok()
-        .flatten()
-        .unwrap_or_default()
+fn env_value(
+    connection: &rusqlite::Connection,
+    store: &dyn SecretStore,
+    deployment_id: &str,
+    key: &str,
+) -> Result<String, String> {
+    Ok(crate::env_vars::resolve(connection, store, deployment_id, key)?.unwrap_or_default())
+}
+
+/// 部署渲染变量：模板里的 {{KEY}} 按这里替换。
+pub(crate) fn deployment_vars(
+    connection: &rusqlite::Connection,
+    store: &dyn SecretStore,
+    deployment_id: &str,
+) -> Result<HashMap<&'static str, String>, String> {
+    let context = crate::deploy_context::load(connection, deployment_id)?;
+    let mut vars = crate::templates::empty_vars();
+    let env_or = |key: &str, fallback: &str| -> Result<String, String> {
+        let value = env_value(connection, store, deployment_id, key)?;
+        Ok(if value.trim().is_empty() {
+            fallback.to_string()
+        } else {
+            value
+        })
+    };
+
+    vars.insert("APP_NAME", env_or("APP_NAME", &context.project)?);
+    vars.insert("PROJECT_NAME", context.project.clone());
+    for key in ["PROJECT_PATH", "REMOTE_PATH"] {
+        vars.insert(key, context.remote_path.clone());
+    }
+    vars.insert(
+        "DATA_PATH_HOST",
+        env_or("DATA_PATH_HOST", &context.remote_path)?,
+    );
+    vars.insert("TZ", env_or("TZ", "Asia/Shanghai")?);
+    vars.insert("NGINX_PORT", context.nginx_port.to_string());
+    vars.insert("DOCKER_NETWORK", context.target.docker_network.clone());
+    vars.insert("MYSQL_USER", env_or("MYSQL_USER", &context.project)?);
+    vars.insert(
+        "MYSQL_DATABASE",
+        env_or("MYSQL_DATABASE", &format!("{}_db", context.project))?,
+    );
+    vars.insert(
+        "MYSQL_PASSWORD",
+        env_value(connection, store, deployment_id, "MYSQL_PASSWORD")?,
+    );
+    vars.insert(
+        "REDIS_PASSWORD",
+        env_value(connection, store, deployment_id, "REDIS_PASSWORD")?,
+    );
+    vars.insert("NGINX_IMAGE", "nginx:stable-alpine".to_string());
+    vars.insert("PHP_IMAGE", "authus/phalcon:5.23.0".to_string());
+    vars.insert("MYSQL_IMAGE", "mysql:8.1.0".to_string());
+    vars.insert("REDIS_IMAGE", "redis:7.2-alpine".to_string());
+    Ok(vars)
+}
+
+fn render_template(
+    connection: &rusqlite::Connection,
+    path: &str,
+    vars: &HashMap<&'static str, String>,
+) -> Result<String, String> {
+    let template = crate::templates::resolve(connection, path)?;
+    let (rendered, unresolved) = crate::templates::render(&template, vars);
+    if !unresolved.is_empty() {
+        return Err(format!(
+            "模板 {path} 存在未定义的变量: {}",
+            unresolved.join(", ")
+        ));
+    }
+    Ok(rendered)
 }
 
 pub(crate) fn render_nginx(domains: &[String], nginx_port: i64, ssl: bool) -> String {
@@ -124,11 +194,12 @@ pub fn render_config_preview(
         .db
         .lock()
         .map_err(|error| format!("数据库连接被占用: {error}"))?;
-    let (project, remote_path, nginx_port) = connection
+    let (project, remote_path, nginx_port, docker_network) = connection
         .query_row(
-            "SELECT p.name, d.remote_path, d.nginx_port
+            "SELECT p.name, d.remote_path, d.nginx_port, s.docker_network
              FROM deployments d
              JOIN projects p ON p.id = d.project_id
+             JOIN servers s ON s.id = d.server_id
              WHERE d.id = ?1",
             [&deployment_id],
             |row| {
@@ -136,19 +207,117 @@ pub fn render_config_preview(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             },
         )
         .map_err(|error| format!("部署不存在: {error}"))?;
-    let mysql_password = env_secret(&connection, &deployment_id, "MYSQL_PASSWORD");
-    let redis_password = env_secret(&connection, &deployment_id, "REDIS_PASSWORD");
-    Ok(render_env_with_secrets(
+    let mysql_password = env_value(
+        &connection,
+        state.secrets.as_ref(),
+        &deployment_id,
+        "MYSQL_PASSWORD",
+    )?;
+    let redis_password = env_value(
+        &connection,
+        state.secrets.as_ref(),
+        &deployment_id,
+        "REDIS_PASSWORD",
+    )?;
+    let template = crate::templates::resolve(&connection, ".env")?;
+    Ok(render_env_template(
+        &template,
         &project,
         &remote_path,
         nginx_port,
         &mysql_password,
         &redis_password,
+        &docker_network,
     ))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplatePreview {
+    pub content: String,
+    pub unresolved: Vec<String>,
+}
+
+#[tauri::command]
+pub fn preview_template(
+    state: State<'_, AppState>,
+    path: String,
+    deployment_id: Option<String>,
+) -> Result<TemplatePreview, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    let content = crate::templates::resolve(&connection, &path)?;
+    let mut vars = match deployment_id.as_deref() {
+        Some(deployment_id) => deployment_vars(&connection, state.secrets.as_ref(), deployment_id)?,
+        None => crate::templates::empty_vars(),
+    };
+    if path == "src/config/config.php"
+        && let Some(deployment_id) = deployment_id.as_deref()
+    {
+        vars.insert(
+            "CONFIG_OVERRIDES",
+            config_overrides(&connection, deployment_id)?,
+        );
+    }
+    let (content, unresolved) = crate::templates::render(&content, &vars);
+    Ok(TemplatePreview {
+        content,
+        unresolved,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFilePreview {
+    pub path: String,
+    pub content: String,
+}
+
+#[tauri::command]
+pub fn preview_project_files(
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<Vec<ProjectFilePreview>, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    let vars = deployment_vars(&connection, state.secrets.as_ref(), &deployment_id)?;
+    let mut config_vars = vars.clone();
+    config_vars.insert(
+        "CONFIG_OVERRIDES",
+        config_overrides(&connection, &deployment_id)?,
+    );
+
+    let mut files = Vec::new();
+    for (path, vars) in [
+        (".env", &vars),
+        ("docker-compose.yaml", &vars),
+        ("src/config/config.php", &config_vars),
+        ("docker/mysql/my.cnf", &vars),
+        ("docker/nginx/sites/default.conf", &vars),
+        ("docker/php/php.ini", &vars),
+    ] {
+        files.push(ProjectFilePreview {
+            path: path.to_string(),
+            content: render_template(&connection, path, vars)?,
+        });
+    }
+    for path in crate::templates::custom_paths(&connection)? {
+        files.push(ProjectFilePreview {
+            content: render_template(&connection, &path, &vars)?,
+            path,
+        });
+    }
+
+    Ok(files)
 }
 
 #[tauri::command]
@@ -213,9 +382,10 @@ fn php_literal(value: &Value) -> String {
     }
 }
 
-fn render_config_php(config_json: &str) -> String {
+#[cfg(test)]
+fn render_config_php(template: &str, config_json: &str) -> String {
     let value = serde_json::from_str(config_json).unwrap_or(Value::Object(Default::default()));
-    CONFIG_TEMPLATE.replace("{{CONFIG_OVERRIDES}}", &php_literal(&value))
+    template.replace("{{CONFIG_OVERRIDES}}", &php_literal(&value))
 }
 
 fn load_config_json(
@@ -233,6 +403,19 @@ fn load_config_json(
         .map(|value| value.unwrap_or_else(|| "{}".to_string()))
 }
 
+fn config_overrides(
+    connection: &rusqlite::Connection,
+    deployment_id: &str,
+) -> Result<String, String> {
+    let config_php = crate::db::load_config_php(connection, deployment_id)?;
+    if !config_php.trim().is_empty() {
+        return Ok(config_php);
+    }
+    let config_json = load_config_json(connection, deployment_id)?;
+    let value = serde_json::from_str(&config_json).unwrap_or(Value::Object(Default::default()));
+    Ok(php_literal(&value))
+}
+
 #[tauri::command]
 pub fn render_config_php_preview(
     state: State<'_, AppState>,
@@ -242,14 +425,12 @@ pub fn render_config_php_preview(
         .db
         .lock()
         .map_err(|error| format!("数据库连接被占用: {error}"))?;
-    let config_json = connection
-        .query_row(
-            "SELECT COALESCE((SELECT config_json FROM deployment_settings WHERE deployment_id = ?1), '{}')",
-            [&deployment_id],
-            |row| row.get::<_, String>(0),
-        )
-        .map_err(|error| format!("读取配置失败: {error}"))?;
-    Ok(render_config_php(&config_json))
+    let mut vars = deployment_vars(&connection, state.secrets.as_ref(), &deployment_id)?;
+    vars.insert(
+        "CONFIG_OVERRIDES",
+        config_overrides(&connection, &deployment_id)?,
+    );
+    render_template(&connection, "src/config/config.php", &vars)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -283,11 +464,12 @@ pub fn generated_config_status(
         .db
         .lock()
         .map_err(|error| format!("数据库连接被占用: {error}"))?;
-    let (project, remote_path, nginx_port, ssl, domain) = connection
+    let (_project, _remote_path, nginx_port, ssl, domain, _docker_network) = connection
         .query_row(
-            "SELECT p.name, d.remote_path, d.nginx_port, d.ssl, d.domain
+            "SELECT p.name, d.remote_path, d.nginx_port, d.ssl, d.domain, s.docker_network
              FROM deployments d
              JOIN projects p ON p.id = d.project_id
+             JOIN servers s ON s.id = d.server_id
              WHERE d.id = ?1",
             [&deployment_id],
             |row| {
@@ -297,6 +479,7 @@ pub fn generated_config_status(
                     row.get::<_, i64>(2)?,
                     row.get::<_, i64>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             },
         )
@@ -331,30 +514,33 @@ pub fn generated_config_status(
     let config_path = directory.join("config.php");
     let exists =
         env_path.exists() || nginx_path.exists() || compose_path.exists() || config_path.exists();
-    let config_json = load_config_json(&connection, &deployment_id)?;
-    let mysql_password = env_secret(&connection, &deployment_id, "MYSQL_PASSWORD");
-    let redis_password = env_secret(&connection, &deployment_id, "REDIS_PASSWORD");
+    let vars = deployment_vars(&connection, state.secrets.as_ref(), &deployment_id)?;
+    let mut config_vars = vars.clone();
+    config_vars.insert(
+        "CONFIG_OVERRIDES",
+        config_overrides(&connection, &deployment_id)?,
+    );
+
+    let expected_env =
+        crate::templates::render(&crate::templates::resolve(&connection, ".env")?, &vars).0;
+    let expected_compose = crate::templates::render(
+        &crate::templates::resolve(&connection, "docker-compose.yaml")?,
+        &vars,
+    )
+    .0;
+    let expected_config = render_template(&connection, "src/config/config.php", &config_vars)?;
 
     let env_changed = fs::read_to_string(&env_path)
-        .map(|value| {
-            value
-                != render_env_with_secrets(
-                    &project,
-                    &remote_path,
-                    nginx_port,
-                    &mysql_password,
-                    &redis_password,
-                )
-        })
+        .map(|value| value != expected_env)
         .unwrap_or(true);
     let nginx_changed = fs::read_to_string(&nginx_path)
         .map(|value| value != render_nginx(&domains, nginx_port, ssl != 0))
         .unwrap_or(true);
     let compose_changed = fs::read_to_string(&compose_path)
-        .map(|value| value != COMPOSE_TEMPLATE)
+        .map(|value| value != expected_compose)
         .unwrap_or(true);
     let config_changed = fs::read_to_string(&config_path)
-        .map(|value| value != render_config_php(&config_json))
+        .map(|value| value != expected_config)
         .unwrap_or(true);
 
     Ok(GeneratedStatus {
@@ -368,8 +554,12 @@ pub fn generated_config_status(
 }
 
 #[tauri::command]
-pub fn render_compose_preview() -> String {
-    COMPOSE_TEMPLATE.to_string()
+pub fn render_compose_preview(state: State<'_, AppState>) -> Result<String, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    crate::templates::resolve(&connection, "docker-compose.yaml")
 }
 
 #[tauri::command]
@@ -417,20 +607,17 @@ pub fn write_generated_config(
         .db
         .lock()
         .map_err(|error| format!("数据库连接被占用: {error}"))?;
-    let (project, remote_path, nginx_port, ssl, domain) = connection
+    let (nginx_port, ssl, domain) = connection
         .query_row(
-            "SELECT p.name, d.remote_path, d.nginx_port, d.ssl, d.domain
+            "SELECT d.nginx_port, d.ssl, d.domain
              FROM deployments d
-             JOIN projects p ON p.id = d.project_id
              WHERE d.id = ?1",
             [&deployment_id],
             |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
                 ))
             },
         )
@@ -464,26 +651,63 @@ pub fn write_generated_config(
     let nginx_path = directory.join("nginx.conf");
     let compose_path = directory.join("docker-compose.yaml");
     let config_path = directory.join("config.php");
-    let config_json = load_config_json(&connection, &deployment_id)?;
-    let mysql_password = env_secret(&connection, &deployment_id, "MYSQL_PASSWORD");
-    let redis_password = env_secret(&connection, &deployment_id, "REDIS_PASSWORD");
-    fs::write(
-        &env_path,
-        render_env_with_secrets(
-            &project,
-            &remote_path,
-            nginx_port,
-            &mysql_password,
-            &redis_password,
-        ),
-    )
-    .map_err(|error| format!("写入 .env 失败: {error}"))?;
+    let vars = deployment_vars(&connection, state.secrets.as_ref(), &deployment_id)?;
+
+    let env_template = crate::templates::resolve(&connection, ".env")?;
+    let (env_content, unresolved) = crate::templates::render(&env_template, &vars);
+    if !unresolved.is_empty() {
+        return Err(format!(
+            "模板 .env 存在未定义的变量: {}",
+            unresolved.join(", ")
+        ));
+    }
+
+    let compose_template = crate::templates::resolve(&connection, "docker-compose.yaml")?;
+    let mut config_vars = vars.clone();
+    config_vars.insert(
+        "CONFIG_OVERRIDES",
+        config_overrides(&connection, &deployment_id)?,
+    );
+
+    fs::write(&env_path, env_content).map_err(|error| format!("写入 .env 失败: {error}"))?;
     fs::write(&nginx_path, render_nginx(&domains, nginx_port, ssl != 0))
         .map_err(|error| format!("写入 nginx.conf 失败: {error}"))?;
-    fs::write(&compose_path, COMPOSE_TEMPLATE)
+    fs::write(&compose_path, compose_template)
         .map_err(|error| format!("写入 docker-compose.yaml 失败: {error}"))?;
-    fs::write(&config_path, render_config_php(&config_json))
-        .map_err(|error| format!("写入 config.php 失败: {error}"))?;
+    fs::write(
+        &config_path,
+        render_template(&connection, "src/config/config.php", &config_vars)?,
+    )
+    .map_err(|error| format!("写入 config.php 失败: {error}"))?;
+
+    for relative in [
+        "docker/mysql/my.cnf",
+        "docker/nginx/sites/default.conf",
+        "docker/php/php.ini",
+    ] {
+        let target_path = directory.join(relative);
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建目录失败: {error}"))?;
+        }
+        fs::write(&target_path, render_template(&connection, relative, &vars)?)
+            .map_err(|error| format!("写入 {relative} 失败: {error}"))?;
+    }
+
+    // 自定义模板：按用户指定路径渲染，并记录清单供上传阶段使用。
+    let custom_paths = crate::templates::custom_paths(&connection)?;
+    for relative in &custom_paths {
+        let target_path = directory.join(relative);
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建目录失败: {error}"))?;
+        }
+        fs::write(&target_path, render_template(&connection, relative, &vars)?)
+            .map_err(|error| format!("写入 {relative} 失败: {error}"))?;
+    }
+    fs::write(
+        directory.join("template-manifest.json"),
+        serde_json::to_vec(&custom_paths).map_err(|error| format!("写入模板清单失败: {error}"))?,
+    )
+    .map_err(|error| format!("写入模板清单失败: {error}"))?;
 
     Ok(GeneratedFiles {
         directory: directory.to_string_lossy().to_string(),
@@ -497,6 +721,7 @@ pub fn write_generated_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::secrets::MemoryStore;
 
     #[test]
     fn renders_env_without_placeholders() {
@@ -505,15 +730,65 @@ mod tests {
         assert!(env.contains("NGINX_PORT=8071"));
         assert!(env.contains("DATA_PATH_HOST=/data/demo"));
         assert!(env.contains("PHP_IMAGE=authus/phalcon:5.23.0"));
+        assert!(env.contains("DOCKER_NETWORK=phalcon-shared"));
         assert!(!env.contains("{{"));
     }
 
     #[test]
     fn renders_env_secrets_from_env_vars() {
-        let env =
-            render_env_with_secrets("demo", "/data/demo", 8071, "mysql-secret", "redis-secret");
+        let env = render_env_template(
+            crate::templates::builtin_content(".env").expect("builtin env"),
+            "demo",
+            "/data/demo",
+            8071,
+            "mysql-secret",
+            "redis-secret",
+            "shared-net",
+        );
         assert!(env.contains("MYSQL_PASSWORD=mysql-secret"));
         assert!(env.contains("REDIS_PASSWORD=redis-secret"));
+        assert!(env.contains("DOCKER_NETWORK=shared-net"));
+    }
+
+    #[test]
+    fn compose_uses_external_shared_network() {
+        let compose =
+            crate::templates::builtin_content("docker-compose.yaml").expect("builtin compose");
+        assert!(compose.contains("external: true"));
+        assert!(compose.contains("${DOCKER_NETWORK:-phalcon-shared}"));
+    }
+
+    #[test]
+    fn env_value_prefers_keychain_for_secret_rows() {
+        let mut connection = rusqlite::Connection::open_in_memory().expect("open memory db");
+        crate::db::migrate(&connection).expect("migrate");
+        crate::db::seed_if_empty(&mut connection).expect("seed");
+        let deployment_id: String = connection
+            .query_row(
+                "SELECT id FROM deployments ORDER BY id LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("deployment");
+        let account = crate::secrets::account(&deployment_id, "MYSQL_PASSWORD");
+        connection
+            .execute(
+                "INSERT INTO env_vars (id, deployment_id, key, value, is_secret, secret_ref)
+                 VALUES ('env-1', ?1, 'MYSQL_PASSWORD', NULL, 1, ?2)",
+                rusqlite::params![&deployment_id, &account],
+            )
+            .expect("insert secret row");
+
+        let store = MemoryStore::default();
+        store.set(&account, "s3cret").expect("set");
+        assert_eq!(
+            env_value(&connection, &store, &deployment_id, "MYSQL_PASSWORD").expect("value"),
+            "s3cret"
+        );
+        assert_eq!(
+            env_value(&connection, &store, &deployment_id, "REDIS_PASSWORD").expect("missing"),
+            ""
+        );
     }
 
     #[test]
@@ -527,15 +802,22 @@ mod tests {
 
     #[test]
     fn compose_template_has_expected_services() {
-        assert!(COMPOSE_TEMPLATE.contains("nginx:"));
-        assert!(COMPOSE_TEMPLATE.contains("php:"));
-        assert!(COMPOSE_TEMPLATE.contains("mysql:"));
-        assert!(COMPOSE_TEMPLATE.contains("redis:"));
+        let compose =
+            crate::templates::builtin_content("docker-compose.yaml").expect("builtin compose");
+        assert!(compose.contains("nginx:"));
+        assert!(compose.contains("php:"));
+        assert!(compose.contains("mysql:"));
+        assert!(compose.contains("redis:"));
     }
 
     #[test]
     fn renders_config_php_literal() {
-        let php = render_config_php(r#"{"app":{"debug":true,"name":"demo"},"list":[1,"x"]}"#);
+        let template =
+            crate::templates::builtin_content("src/config/config.php").expect("builtin config");
+        let php = render_config_php(
+            template,
+            r#"{"app":{"debug":true,"name":"demo"},"list":[1,"x"]}"#,
+        );
         assert!(php.contains("'debug' => true"));
         assert!(php.contains("'name' => 'demo'"));
         assert!(php.contains("'list' => [1, 'x']"));

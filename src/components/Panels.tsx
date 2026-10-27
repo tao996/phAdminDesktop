@@ -1,21 +1,27 @@
-import { useEffect, useState } from "react";
-import type { Activity, Backup, Container, Project, Server } from "../data/mock";
+import { useEffect, useRef, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type { Activity, Container, Project, Server } from "../data/mock";
 import {
   canUseTauri,
   getContainers,
   listRuns,
   loadDeploymentConfig,
   previewDeployPlan,
+  previewProjectFiles,
+  saveTemplate,
   type DeployStep,
   type BackupEntry,
+  type PreviewFile,
   type RunRecord,
   type SyncItem,
 } from "../api/workspace";
 import { Icon } from "./Icon";
+import { CodeEditor } from "./CodeEditor";
 
 export type WorkspaceSection =
   | "overview"
   | "deploy"
+  | "files"
   | "containers"
   | "nginx"
   | "database"
@@ -36,7 +42,10 @@ interface OverviewProps extends PanelCommonProps {
 
 function formatRunTime(value: string | null) {
   if (!value) return "—";
-  return value.length >= 16 ? value.slice(11, 16) : value;
+  const parsed = new Date(`${value.replace(" ", "T")}Z`);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleTimeString("zh-CN", { hour12: false });
 }
 
 function formatRunDuration(run: RunRecord) {
@@ -80,12 +89,14 @@ function StatCard({
   value,
   detail,
   tone = "default",
+  onDetailClick,
 }: {
   icon: "server" | "box" | "shield" | "clock";
   label: string;
   value: string;
   detail: string;
   tone?: "default" | "success" | "warning";
+  onDetailClick?: () => void;
 }) {
   return (
     <div className={`stat-card ${tone}`}>
@@ -97,7 +108,13 @@ function StatCard({
         <span className={`status-dot ${tone === "warning" ? "warning" : "online"}`} />
       </div>
       <strong>{value}</strong>
-      <span className="stat-detail">{detail}</span>
+      {onDetailClick ? (
+        <button type="button" className="stat-detail stat-detail-link" onClick={onDetailClick}>
+          {detail}
+        </button>
+      ) : (
+        <span className="stat-detail">{detail}</span>
+      )}
     </div>
   );
 }
@@ -111,36 +128,19 @@ export function OverviewPanel({
   onOpenRuns,
   refreshVersion,
 }: OverviewProps) {
-  const [liveContainers, setLiveContainers] = useState<Container[] | null>(null);
   const [liveActivities, setLiveActivities] = useState<Activity[] | null>(null);
+  const [liveContainers, setLiveContainers] = useState<Container[] | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const refreshSeen = useRef(false);
 
   useEffect(() => {
     if (!canUseTauri()) return;
     let cancelled = false;
     setLiveError(null);
-    setLiveContainers(null);
     setLiveActivities(null);
+    setLiveContainers(null);
 
-    void getContainers(project.id)
-      .then((items) => {
-        if (!cancelled) {
-          setLiveContainers(
-            items.map((container) => ({
-              service: container.service,
-              image: container.image,
-              status: container.status,
-              port: container.port,
-            })),
-          );
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setLiveError(error instanceof Error ? error.message : String(error));
-        }
-      });
-
+    // 项目切换时只读取本地运行记录，不主动连接服务器（避免新项目触发 docker compose ps）。
     void listRuns(project.id, 5)
       .then((runs) => {
         if (!cancelled) {
@@ -158,11 +158,54 @@ export function OverviewPanel({
     };
   }, [project.id, refreshVersion]);
 
+  // 测试连接 / 部署完成后刷新版本变化时才拉取容器，项目切换不自动连接。
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    if (!refreshSeen.current) {
+      refreshSeen.current = true;
+      return;
+    }
+    let cancelled = false;
+    void getContainers(project.id)
+      .then((items) => {
+        if (cancelled) return;
+        setLiveContainers(
+          items.map((container) => ({
+            service: container.service,
+            image: container.image,
+            status: container.status,
+            port: container.port,
+          })),
+        );
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setLiveError(error instanceof Error ? error.message : String(error));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshVersion]);
+
   const containers = liveContainers ?? project.containers;
   const running = containers.filter((container) => container.status === "running").length;
   const total = containers.length;
   const projectActivities =
     liveActivities ?? activities.filter((activity) => activity.projectId === project.id);
+  const siteUrl = project.domain
+    ? (project.ssl ? "https://" : "http://") + project.domain
+    : "";
+  const openSite = () => {
+    if (!siteUrl) return;
+    if (canUseTauri()) {
+      void openUrl(siteUrl).catch((error: unknown) => {
+        setLiveError(error instanceof Error ? error.message : String(error));
+      });
+    } else {
+      window.open(siteUrl, "_blank", "noreferrer");
+    }
+  };
 
   return (
     <div className="panel-stack">
@@ -177,21 +220,28 @@ export function OverviewPanel({
           icon="server"
           label="服务器"
           value={server.name}
-          detail={`${server.host} · ${server.latency}`}
+          detail={`${server.username} · ${server.latency}`}
         />
         <StatCard
           icon="box"
           label="容器"
           value={total === 0 ? "—" : `${running}/${total}`}
-          detail={total === 0 ? "尚未部署" : "运行中的服务"}
+          detail={
+            total === 0
+              ? project.status === "not-deployed"
+                ? "尚未部署"
+                : "点击测试连接刷新"
+              : "运行中的服务"
+          }
           tone={total > 0 && running < total ? "warning" : "success"}
         />
         <StatCard
           icon="shield"
           label="Nginx"
           value={project.ssl ? "SSL 已启用" : "HTTP"}
-          detail={`${project.domain} · :${project.port}`}
+          detail={siteUrl || "未配置域名"}
           tone={project.ssl ? "success" : "warning"}
+          onDetailClick={siteUrl ? openSite : undefined}
         />
         <StatCard
           icon="clock"
@@ -263,7 +313,7 @@ export function OverviewPanel({
             <button
               type="button"
               className="quick-action"
-              onClick={() => onAction(`php admin app:${project.name} dc:restart:php`, "重启 PHP")}
+              onClick={() => onAction("docker compose restart php", "重启 PHP")}
             >
               <span className="quick-icon">
                 <Icon name="refresh" size={15} />
@@ -277,7 +327,7 @@ export function OverviewPanel({
             <button
               type="button"
               className="quick-action"
-              onClick={() => onAction(`php admin app:${project.name} db:backup`, "备份数据库")}
+              onClick={() => onAction("phadmin:db-backup", "备份数据库")}
             >
               <span className="quick-icon">
                 <Icon name="database" size={15} />
@@ -310,32 +360,25 @@ export function OverviewPanel({
 }
 
 interface DeployPanelProps extends PanelCommonProps {
-  onStartDeploy: (restartPhp: boolean, native: boolean) => void;
+  onStartDeploy: (restartPhp: boolean) => void;
   onSyncItem: (itemId: string) => Promise<void>;
   onSyncBundleItem: (itemId: string) => Promise<void>;
   onSyncFtpItem: (itemId: string) => Promise<void>;
   onSyncAll: () => Promise<void>;
-  onPreviewConfig: () => void;
 }
 
 export function DeployPanel({
   project,
   server,
+  onAction,
   onStartDeploy,
   onSyncItem,
   onSyncBundleItem,
   onSyncFtpItem,
   onSyncAll,
-  onPreviewConfig,
 }: DeployPanelProps) {
   const [syncingAll, setSyncingAll] = useState(false);
-  const [filter, setFilter] = useState<"all" | "method" | "name">("all");
-  const [method, setMethod] = useState("git");
-  const [entry, setEntry] = useState("主仓库");
-  const [full, setFull] = useState(false);
-  const [updateConfig, setUpdateConfig] = useState(false);
   const [restart, setRestart] = useState(true);
-  const [native, setNative] = useState(false);
   const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -350,11 +393,6 @@ export function DeployPanel({
       .then((config) => {
         if (cancelled) return;
         setSyncItems(config.syncItems);
-        if (config.syncItems.length > 0) {
-          const first = config.syncItems[0];
-          if (first.method) setMethod(first.method);
-          setEntry(first.name || first.path || "主仓库");
-        }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -367,12 +405,10 @@ export function DeployPanel({
     };
   }, [project.id]);
 
-  const methods = Array.from(new Set(syncItems.map((item) => item.method).filter(Boolean)));
-
   useEffect(() => {
     if (!canUseTauri()) return;
     let cancelled = false;
-    void previewDeployPlan(project.id, restart, native)
+    void previewDeployPlan(project.id, restart)
       .then((value) => {
         if (!cancelled) setPlan(value);
       })
@@ -382,13 +418,7 @@ export function DeployPanel({
     return () => {
       cancelled = true;
     };
-  }, [project.id, restart, native]);
-
-  const filterPart =
-    filter === "method" ? ` method=${method}` : filter === "name" ? ` name=${entry}` : "";
-  const command = `php admin app:${project.name} upgrade${filterPart}${
-    full && filter === "all" ? " full=1" : ""
-  }${updateConfig ? " -y" : ""}`;
+  }, [project.id, restart]);
 
   return (
     <div className="panel-stack">
@@ -407,7 +437,7 @@ export function DeployPanel({
               <span>目标服务器</span>
               <div className="readonly-field">
                 <Icon name="server" size={13} />
-                {server.name} · {server.host}
+                {server.name}
               </div>
             </label>
             <label className="field">
@@ -416,98 +446,6 @@ export function DeployPanel({
             </label>
           </div>
 
-          <div className="field">
-            <span>同步过滤</span>
-            <div className="segmented">
-              <button
-                type="button"
-                className={filter === "all" ? "active" : ""}
-                onClick={() => setFilter("all")}
-              >
-                全部
-              </button>
-              <button
-                type="button"
-                className={filter === "method" ? "active" : ""}
-                onClick={() => setFilter("method")}
-              >
-                按方式
-              </button>
-              <button
-                type="button"
-                className={filter === "name" ? "active" : ""}
-                onClick={() => setFilter("name")}
-              >
-                按条目
-              </button>
-            </div>
-          </div>
-
-          {filter === "method" && (
-            <label className="field">
-              <span>同步方式</span>
-              <select className="form-select" value={method} onChange={(event) => setMethod(event.target.value)}>
-                {(methods.length > 0 ? methods : ["git", "bundle", "ftp"]).map((value) => (
-                  <option value={value} key={value}>
-                    {value}
-                    {value === "git"
-                      ? " — 远程 clone/pull"
-                      : value === "bundle"
-                        ? " — 本地打包直传"
-                        : value === "ftp"
-                          ? " — SFTP 增量上传"
-                          : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          {filter === "name" && (
-            <label className="field">
-              <span>条目名称</span>
-              <select className="form-select" value={entry} onChange={(event) => setEntry(event.target.value)}>
-                {syncItems.length > 0 ? (
-                  syncItems.map((item) => (
-                    <option value={item.name || item.path || item.id} key={item.id}>
-                      {item.name || item.path || item.id}
-                      {item.path && item.name ? ` — ${item.path}` : ""}
-                    </option>
-                  ))
-                ) : (
-                  <>
-                    <option>主仓库</option>
-                    <option>src/App/Projects/boyu</option>
-                    <option>src/App/Modules/demo</option>
-                  </>
-                )}
-              </select>
-            </label>
-          )}
-
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={full}
-              disabled={filter !== "all"}
-              onChange={(event) => setFull(event.target.checked)}
-            />
-            <span>
-              FTP 全量上传
-              <small>忽略增量清单，强制上传全部文件</small>
-            </span>
-          </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={updateConfig}
-              onChange={(event) => setUpdateConfig(event.target.checked)}
-            />
-            <span>
-              同时更新配置（-y）
-              <small>会覆盖远程 compose / nginx / php.ini</small>
-            </span>
-          </label>
           <label className="check-row">
             <input
               type="checkbox"
@@ -516,18 +454,7 @@ export function DeployPanel({
             />
             <span>
               完成后重启 php 容器
-              <small>追加执行 dc:restart:php</small>
-            </span>
-          </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={native}
-              onChange={(event) => setNative(event.target.checked)}
-            />
-            <span>
-              原生部署（实验）
-              <small>先同步全部并上传配置，跳过 php admin upgrade</small>
+              <small>追加执行 docker compose restart php</small>
             </span>
           </label>
 
@@ -547,22 +474,27 @@ export function DeployPanel({
             <button
               type="button"
               className="button secondary"
-              onClick={onPreviewConfig}
+              onClick={() => onAction("phadmin:git-key", "生成部署密钥")}
             >
-              <Icon name="file-text" size={14} />
-              预览配置
+              <Icon name="shield" size={14} />
+              部署密钥
             </button>
             <button
               type="button"
               className="button primary"
               onClick={() => {
-                onStartDeploy(restart, native);
+                onStartDeploy(restart);
               }}
             >
               <Icon name="rocket" size={14} />
-              {native ? "开始部署" : "开始升级"}
+              开始部署
             </button>
           </div>
+
+          <p className="muted-caption deploy-key-hint">
+            部署密钥会在目标服务器生成 SSH 公钥（<code>~/.ssh/id_ed25519.pub</code>），
+            用于拉取私有 Git 仓库；生成后请把公钥添加到 Git 服务商的部署密钥中。
+          </p>
 
           {configError && (
             <div className="container-error">
@@ -631,23 +563,31 @@ export function DeployPanel({
               <span className="section-kicker">Command</span>
               <h3>命令预览</h3>
             </div>
-            <span className="tag">legacy 对照</span>
+            <span className="tag">原生步骤</span>
           </div>
           <pre className="command-preview">
-            <span className="prompt">$</span> {command}
+            <span className="prompt">$</span> 同步全部（git / bundle / ftp）
+            {"\n"}
+            <span className="prompt">$</span> 生成 .env / nginx.conf / docker-compose.yaml / config.php
+            {"\n"}
+            <span className="prompt">$</span> 上传到 {project.path}
+            {"\n"}
+            <span className="prompt">$</span> docker compose up -d
+            {"\n"}
+            <span className="prompt">$</span> nginx -s reload
             {restart && (
               <>
                 {"\n"}
-                <span className="prompt">$</span> php admin app:{project.name} dc:restart:php
+                <span className="prompt">$</span> docker compose restart php
               </>
             )}
+            {"\n"}
+            <span className="prompt">$</span> curl http://127.0.0.1:{project.port}/
           </pre>
           <div className="command-hint">
             <Icon name="alert" size={13} />
             {canUseTauri()
-              ? native
-                ? "原生部署：先同步全部并上传配置，再执行容器启动与 Nginx reload；不再调用 php admin upgrade。"
-                : "Tauri 模式按步骤执行：升级 → 容器 → Nginx；勾选重启时最后重启 PHP，任一步失败即中止。"
+              ? "全部由桌面端执行：同步 → 生成并上传配置 → compose up → Nginx reload → 健康检查；任一步失败会恢复部署前配置。"
               : "当前为 UI 预览，按钮只模拟执行并把命令写入终端，不会连接服务器。"}
           </div>
           <div className="step-list">
@@ -707,14 +647,15 @@ export function ContainersPanel({
   }, [project.id, project.containers]);
 
   useEffect(() => {
-    if (canUseTauri()) {
-      void refreshContainers();
-    }
-  }, [project.id, refreshVersion]);
+    // 只在部署/命令完成后的刷新版本变化时拉取容器状态；
+    // 切换项目不自动连接服务器。
+    if (!canUseTauri() || refreshVersion === 0) return;
+    void refreshContainers();
+  }, [refreshVersion]);
 
   const refreshContainers = async () => {
     if (!canUseTauri()) {
-      onAction(`php admin app:${project.name} dc:status`, "刷新容器状态");
+      onAction("docker compose ps", "刷新容器状态");
       return;
     }
 
@@ -829,7 +770,7 @@ export function ContainersPanel({
             <button
               type="button"
               className="button primary small"
-              onClick={() => onAction(`php admin app:${project.name} dc:restart`, "启动容器")}
+              onClick={() => onAction("docker compose up -d", "启动容器")}
             >
               <Icon name="play" size={13} />
               启动容器
@@ -913,6 +854,7 @@ export function NginxPanel({
   onReloadNginx: () => void;
   onAccessLog: () => void;
 }) {
+  const [email, setEmail] = useState("");
   return (
     <div className="panel-stack">
       <div className="two-column wide-left">
@@ -972,10 +914,50 @@ export function NginxPanel({
             <button
               type="button"
               className="button primary"
-              onClick={() => onAction(`php admin app:${project.name} nginx:add`, "上传 Nginx 配置")}
+              onClick={() => onAction("phadmin:nginx-publish", "发布 Nginx 配置")}
             >
               <Icon name="arrow-up-right" size={14} />
-              上传配置
+              发布配置
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => onAction("phadmin:nginx-remove", "移除 Nginx 配置")}
+            >
+              <Icon name="trash" size={14} />
+              移除配置
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => onAction("phadmin:server-check", "服务器环境检查")}
+            >
+              <Icon name="server" size={14} />
+              环境检查
+            </button>
+          </div>
+
+          <div className="form-actions">
+            <input
+              className="input"
+              type="email"
+              placeholder="证书通知邮箱"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+            <button
+              type="button"
+              className="button primary"
+              disabled={!email.includes("@")}
+              onClick={() =>
+                onAction(
+                  `phadmin:ssl-enable?email=${encodeURIComponent(email)}`,
+                  "申请 SSL 证书",
+                )
+              }
+            >
+              <Icon name="shield" size={14} />
+              申请 / 更新证书
             </button>
           </div>
         </section>
@@ -984,23 +966,26 @@ export function NginxPanel({
           <div className="card-heading">
             <div>
               <span className="section-kicker">Logs</span>
-              <h3>最近访问</h3>
+              <h3>Nginx 日志</h3>
             </div>
           </div>
-          <div className="mini-log">
-            <div><span>200</span> GET / 12ms</div>
-            <div><span>200</span> GET /login 8ms</div>
-            <div><span>302</span> POST /m/tao/admin.login 14ms</div>
-            <div><span>200</span> GET /m/tao/admin.index 21ms</div>
+          <p className="muted-caption">
+            读取宿主机 /var/log/nginx 最近 200 行，输出到下方终端。
+          </p>
+          <div className="form-actions stacked">
+            <button type="button" className="button ghost full" onClick={onAccessLog}>
+              查看完整访问日志
+              <Icon name="chevron-right" size={13} />
+            </button>
+            <button
+              type="button"
+              className="button ghost full"
+              onClick={() => onAction("phadmin:nginx-log-error", "查看错误日志")}
+            >
+              查看错误日志
+              <Icon name="chevron-right" size={13} />
+            </button>
           </div>
-          <button
-            type="button"
-            className="button ghost full"
-            onClick={onAccessLog}
-          >
-            查看完整访问日志
-            <Icon name="chevron-right" size={13} />
-          </button>
         </aside>
       </div>
     </div>
@@ -1008,24 +993,48 @@ export function NginxPanel({
 }
 
 interface DatabaseProps extends PanelCommonProps {
-  backups: Backup[];
-  onDbCommand: (args: string[], label: string) => void;
   onNativeBackup: () => void;
   onListNativeBackups: () => Promise<BackupEntry[]>;
   onRestoreNativeBackup: (name: string) => Promise<void>;
+  onDownloadNativeBackup: (name: string) => Promise<void>;
 }
 
 export function DatabasePanel({
   project,
-  backups,
   onAction,
-  onDbCommand,
   onNativeBackup,
   onListNativeBackups,
   onRestoreNativeBackup,
+  onDownloadNativeBackup,
 }: DatabaseProps) {
   const [pmaDeployed, setPmaDeployed] = useState(false);
+  const [tunnelOpen, setTunnelOpen] = useState(false);
+  const [cronTime, setCronTime] = useState("03:00");
+  const [cronKeep, setCronKeep] = useState(7);
   const [nativeBackups, setNativeBackups] = useState<BackupEntry[]>([]);
+  const [backupNotice, setBackupNotice] = useState("");
+
+  useEffect(() => {
+    void onListNativeBackups()
+      .then(setNativeBackups)
+      .catch(() => setNativeBackups([]));
+  }, [project.id]);
+
+  const refreshNativeBackups = async () => {
+    try {
+      const list = await onListNativeBackups();
+      setNativeBackups(list);
+      setBackupNotice(list.length > 0 ? `已加载 ${list.length} 个本地备份` : "暂无本地备份");
+      window.setTimeout(() => setBackupNotice(""), 3000);
+      window.setTimeout(() => {
+        document
+          .querySelector(".database-native-card")
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 50);
+    } catch {
+      setBackupNotice("读取本地备份失败");
+    }
+  };
 
   return (
     <div className="panel-stack">
@@ -1038,35 +1047,48 @@ export function DatabasePanel({
           <button
             type="button"
             className="button secondary small"
-            onClick={() => void onListNativeBackups().then(setNativeBackups)}
+            title="刷新本机备份列表，并定位到页面底部的「原生备份」"
+            onClick={() => void refreshNativeBackups()}
           >
             本地备份
           </button>
           <button
             type="button"
             className="button secondary small"
-            onClick={onNativeBackup}
+            title="在服务器上执行 mysqldump 生成备份，并列出远程备份文件"
+            onClick={() => onAction("phadmin:db-remote-backups", "服务器备份列表")}
           >
-            备份到本地
+            服务器备份
           </button>
           <button
             type="button"
             className="button secondary small"
-            onClick={() => onDbCommand(["db:migrate"], "结构迁移")}
+            title="打开本地 seed 数据目录；把 SQL 文件放进去后点「Seed」导入"
+            onClick={() => onAction("phadmin:db-seed-dir", "打开 seed 目录")}
+          >
+            Seed 目录
+          </button>
+          <button
+            type="button"
+            className="button secondary small"
+            title="在服务器容器内执行 Phalcon 数据库结构迁移（migration）"
+            onClick={() => onAction("phadmin:db-migrate", "结构迁移")}
           >
             结构迁移
           </button>
           <button
             type="button"
             className="button secondary small"
-            onClick={() => onDbCommand(["db:seed"], "Seed 基础数据")}
+            title="执行 seed 目录中的基础数据导入"
+            onClick={() => onAction("phadmin:db-seed", "Seed 基础数据")}
           >
             Seed
           </button>
           <button
             type="button"
             className="button primary small"
-            onClick={() => onDbCommand(["db:backup", "download=1"], "备份并下载")}
+            title="立即生成一份本机压缩备份（.sql.gz）"
+            onClick={onNativeBackup}
           >
             <Icon name="database" size={13} />
             立即备份
@@ -1074,123 +1096,93 @@ export function DatabasePanel({
         </div>
       </div>
 
-      {nativeBackups.length > 0 && (
-        <section className="card">
-          <div className="card-heading">
-            <div>
-              <span className="section-kicker">Local MySQL</span>
-              <h3>原生备份</h3>
-            </div>
-            <span className="muted-caption">{nativeBackups.length} 个文件</span>
-          </div>
-          <div className="native-backup-list">
-            {nativeBackups.slice(0, 5).map((backup) => (
-              <div className="native-backup-row" key={backup.name}>
-                <code>{backup.name}</code>
-                <small>{backup.bytes} bytes</small>
-                <button
-                  type="button"
-                  className="mini-button"
-                  onClick={() => void onRestoreNativeBackup(backup.name)}
-                >
-                  恢复
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {backupNotice && <div className="database-notice">{backupNotice}</div>}
 
       <div className="two-column wide-left">
         <section className="card">
           <div className="card-heading">
             <div>
-              <span className="section-kicker">Backups</span>
-              <h3>备份列表</h3>
+              <span className="section-kicker">Schedule</span>
+              <h3>服务器定时备份</h3>
             </div>
-            <span className="muted-caption">{backups.length} 个文件</span>
+            <span className="muted-caption">crontab + mysqldump</span>
           </div>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>文件</th>
-                  <th>大小</th>
-                  <th>时间</th>
-                  <th className="align-right">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {backups.map((backup) => (
-                  <tr key={backup.name}>
-                    <td className="mono backup-name">{backup.name}</td>
-                    <td>{backup.size}</td>
-                    <td className="muted-cell">{backup.createdAt}</td>
-                    <td>
-                      <div className="row-actions">
-                        <button
-                          type="button"
-                          className="mini-button"
-                          onClick={() =>
-                            onDbCommand(["db:backup:get", backup.name], "下载备份")
-                          }
-                        >
-                          <Icon name="download" size={12} />
-                          下载
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <p className="muted-caption">
+            在服务器安装每日 crontab：mysqldump 压缩到
+            <code> &lt;remote&gt;/docker/storage/backup/mysql</code>，超过保留天数自动删除。
+          </p>
+          <div className="form-grid">
+            <label className="field">
+              <span>执行时间</span>
+              <input
+                className="input mono"
+                value={cronTime}
+                onChange={(event) => setCronTime(event.target.value)}
+                placeholder="03:00"
+              />
+            </label>
+            <label className="field">
+              <span>保留天数</span>
+              <input
+                className="input mono"
+                type="number"
+                min={1}
+                max={365}
+                value={cronKeep}
+                onChange={(event) =>
+                  setCronKeep(Math.min(365, Math.max(1, Number(event.target.value) || 1)))
+                }
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="button primary"
+              onClick={() =>
+                onAction(
+                  `phadmin:db-cron-install?time=${encodeURIComponent(cronTime)}&keep=${cronKeep}`,
+                  "安装定时备份",
+                )
+              }
+            >
+              <Icon name="clock" size={14} />
+              安装 / 更新
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => onAction("phadmin:db-cron-remove", "移除定时备份")}
+            >
+              <Icon name="trash" size={14} />
+              移除
+            </button>
           </div>
         </section>
 
         <aside className="card">
           <div className="card-heading">
             <div>
-              <span className="section-kicker">Schedule</span>
-              <h3>定时备份</h3>
-            </div>
-            <span className="state-badge running">
-              <span className="status-dot online" />
-              已启用
-            </span>
-          </div>
-          <div className="schedule-card">
-            <div>
-              <span>每天</span>
-              <strong>03:00</strong>
-            </div>
-            <div>
-              <span>保留</span>
-              <strong>7 天</strong>
-            </div>
-            <div>
-              <span>位置</span>
-              <strong className="mono">/data/backups</strong>
+              <span className="section-kicker">Temporary</span>
+              <h3>临时访问</h3>
             </div>
           </div>
           <div className="form-actions stacked">
             <button
               type="button"
-              className="button secondary full"
-              onClick={() => onDbCommand(["db:backup:list"], "刷新备份列表")}
-            >
-              <Icon name="refresh" size={13} />
-              刷新备份列表
-            </button>
-            <button
-              type="button"
               className="button ghost full"
-              onClick={() => onAction(`php admin app:${project.name} db:proxy`, "启动 SSH 隧道")}
+              onClick={() => {
+                onAction(
+                  tunnelOpen ? "phadmin:tunnel-stop" : "phadmin:tunnel-start?port=13306",
+                  tunnelOpen ? "关闭 SSH 隧道" : "开启 SSH 隧道",
+                );
+                setTunnelOpen((open) => !open);
+              }}
             >
               <Icon name="terminal" size={13} />
-              开启 SSH 隧道
+              {tunnelOpen ? "关闭 SSH 隧道（13306）" : "开启 SSH 隧道（13306）"}
             </button>
           </div>
-
           <div className="temp-access">
             <div className="temp-access-heading">
               <div>
@@ -1203,7 +1195,7 @@ export function DatabasePanel({
               </span>
             </div>
             <p>
-              端口 <code>13307</code> · 临时暴露数据库，使用后请删除
+              端口 <code>13307</code> · 容器 <code>--rm</code>，使用后请删除
             </p>
             <div className="temp-access-actions">
               <button
@@ -1211,7 +1203,7 @@ export function DatabasePanel({
                 className="button primary small"
                 onClick={() => {
                   setPmaDeployed(true);
-                  onAction(`php admin app:${project.name} db:pma host=13307`, "部署 phpMyAdmin");
+                  onAction("phadmin:pma-start?port=13307", "部署 phpMyAdmin");
                 }}
               >
                 <Icon name="database" size={13} />
@@ -1223,7 +1215,7 @@ export function DatabasePanel({
                 disabled={!pmaDeployed}
                 onClick={() => {
                   setPmaDeployed(false);
-                  onAction(`php admin app:${project.name} db:pma-rm`, "删除 phpMyAdmin");
+                  onAction("phadmin:pma-stop", "删除 phpMyAdmin");
                 }}
               >
                 <Icon name="trash" size={13} />
@@ -1233,24 +1225,97 @@ export function DatabasePanel({
           </div>
         </aside>
       </div>
+
+      <section className="card database-native-card">
+        <div className="card-heading">
+          <div>
+            <span className="section-kicker">Local MySQL</span>
+            <h3>原生备份</h3>
+          </div>
+          <span className="muted-caption">{nativeBackups.length} 个文件</span>
+        </div>
+        <div className="native-backup-list">
+          {nativeBackups.slice(0, 5).map((backup) => (
+            <div className="native-backup-row" key={backup.name}>
+              <code>{backup.name}</code>
+              <small>{backup.bytes} bytes</small>
+              <button
+                type="button"
+                className="mini-button"
+                onClick={() => void onDownloadNativeBackup(backup.name)}
+              >
+                <Icon name="download" size={12} />
+                下载
+              </button>
+              <button
+                type="button"
+                className="mini-button"
+                onClick={() => void onRestoreNativeBackup(backup.name)}
+              >
+                恢复
+              </button>
+            </div>
+          ))}
+          {nativeBackups.length === 0 && (
+            <div className="empty-inline">暂无本地备份，点击「立即备份」生成。</div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
 
-const logSample = [
-  { time: "12:30:01", level: "INFO", text: "→ [1/2] [bundle] 主仓库 main" },
-  { time: "12:30:02", level: "INFO", text: "→ 生成 deploy/projects/boyu/.env" },
-  { time: "12:30:31", level: "INFO", text: "→ docker compose up -d" },
-  { time: "12:31:18", level: "OK", text: "✔ 代码同步完成（2m 18s）" },
-  { time: "12:31:19", level: "WARN", text: "提示：更新代码后请重启 php 容器" },
-  { time: "12:31:21", level: "INFO", text: "→ php artisan migration r" },
-  { time: "12:31:40", level: "OK", text: "✔ 迁移完成，共 3 个 migration" },
-  { time: "12:31:41", level: "INFO", text: "→ 执行 afterUpgrade hooks" },
-];
-
 export function LogsPanel({ project }: Pick<PanelCommonProps, "project">) {
   const [level, setLevel] = useState("ALL");
-  const filtered = logSample.filter((line) => level === "ALL" || line.level === level);
+  const [lines, setLines] = useState<{ time: string; level: string; text: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    let cancelled = false;
+    setLoading(true);
+    void listRuns(project.id, 100)
+      .then((runs) => {
+        if (cancelled) return;
+        setLines(
+          runs.map((run) => ({
+            time: formatRunTime(run.startedAt),
+            level:
+              run.status === "succeeded"
+                ? "OK"
+                : run.status === "failed" || run.status === "canceled"
+                  ? "WARN"
+                  : "INFO",
+            text: `${[run.command, ...run.args].join(" ")}${
+              run.stepTitle ? ` · ${run.stepTitle}` : ""
+            }${run.errorSummary ? ` · ${run.errorSummary}` : ""}`,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setLines([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id]);
+
+  const filtered = lines.filter((line) => level === "ALL" || line.level === level);
+
+  const exportLogs = () => {
+    const text = filtered
+      .map((line) => `${line.time} ${line.level} ${line.text}`)
+      .join("\n");
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${project.name}-runs.log`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="panel-stack">
@@ -1273,7 +1338,7 @@ export function LogsPanel({ project }: Pick<PanelCommonProps, "project">) {
                 </button>
               ))}
             </div>
-            <button type="button" className="mini-button">
+            <button type="button" className="mini-button" onClick={exportLogs}>
               <Icon name="download" size={12} />
               导出
             </button>
@@ -1287,13 +1352,264 @@ export function LogsPanel({ project }: Pick<PanelCommonProps, "project">) {
               <span className="log-text">{line.text}</span>
             </div>
           ))}
-          <div className="log-line muted">
-            <span className="log-time">12:31:42</span>
-            <span className="log-level info">INFO</span>
-            <span className="log-text">— {project.name} · 日志已归档 —</span>
-          </div>
+          {!loading && filtered.length === 0 && (
+            <div className="empty-inline">暂无运行记录</div>
+          )}
+          {loading && <div className="empty-inline">读取运行记录…</div>}
         </div>
       </section>
+    </div>
+  );
+}
+
+export function FilesPanel({ project }: Pick<PanelCommonProps, "project">) {
+  const [files, setFiles] = useState<PreviewFile[]>([]);
+  const [active, setActive] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [editorVersion, setEditorVersion] = useState(0);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newPath, setNewPath] = useState("");
+  const [newContent, setNewContent] = useState("");
+  const [addError, setAddError] = useState("");
+  const [savingFile, setSavingFile] = useState(false);
+
+  const load = async () => {
+    if (!canUseTauri()) {
+      setError("浏览器预览模式不生成文件。");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await previewProjectFiles(project.id);
+      setFiles(list);
+      setDrafts({});
+      setActive((current) =>
+        list.some((file) => file.path === current) ? current : (list[0]?.path ?? ""),
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [project.id]);
+
+  const current = files.find((file) => file.path === active);
+  const content = current ? (drafts[current.path] ?? current.content) : "";
+  const dirty = current ? drafts[current.path] !== undefined && drafts[current.path] !== current.content : false;
+
+  const copyContent = async () => {
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  const saveNewFile = async () => {
+    const path = newPath.trim();
+    if (!path) {
+      setAddError("请填写文件路径");
+      return;
+    }
+    if (!newContent.trim()) {
+      setAddError("请填写文件内容");
+      return;
+    }
+    setSavingFile(true);
+    setAddError("");
+    try {
+      const saved = await saveTemplate(path, newContent);
+      setAddOpen(false);
+      setNewPath("");
+      setNewContent("");
+      await load();
+      setActive(saved.path);
+    } catch (reason) {
+      setAddError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSavingFile(false);
+    }
+  };
+
+  return (
+    <div className="panel-stack">
+      <div className="files-head">
+        <div>
+          <span className="section-kicker">Generated</span>
+          <h3>文件预览</h3>
+          <p className="muted-caption">
+            项目配置 + 模板管理合并后的最终内容，即同步到服务器上的文件；右侧可直接编辑查看（不会写回模板）。
+          </p>
+        </div>
+        <div className="heading-actions">
+          <button
+            type="button"
+            className="button secondary small"
+            onClick={() => {
+              setAddOpen(true);
+              setAddError("");
+            }}
+          >
+            <Icon name="plus" size={13} />
+            添加文件
+          </button>
+          <button
+            type="button"
+            className="button secondary small"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            <Icon name="refresh" size={13} />
+            刷新
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="container-error">
+          <Icon name="alert" size={13} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="files-grid">
+        <aside className="files-list">
+          {files.map((file) => (
+            <button
+              key={file.path}
+              type="button"
+              className={file.path === active ? "files-item active" : "files-item"}
+              onClick={() => setActive(file.path)}
+            >
+              <Icon name="file-text" size={12} />
+              <span>{file.path}</span>
+            </button>
+          ))}
+          {files.length === 0 && <div className="empty-inline">暂无文件</div>}
+        </aside>
+        <section className="files-view">
+          {current ? (
+            <>
+              <div className="files-path">
+                <span>{current.path}</span>
+                <div className="heading-actions">
+                  {dirty && (
+                    <button
+                      type="button"
+                      className="mini-button"
+                      onClick={() => {
+                        setDrafts((currentDrafts) => {
+                          const next = { ...currentDrafts };
+                          delete next[current.path];
+                          return next;
+                        });
+                        setEditorVersion((value) => value + 1);
+                      }}
+                    >
+                      重置修改
+                    </button>
+                  )}
+                  <button type="button" className="mini-button" onClick={() => void copyContent()}>
+                    <Icon name="copy" size={12} />
+                    {copied ? "已复制" : "复制"}
+                  </button>
+                </div>
+              </div>
+              <CodeEditor
+                key={`${current.path}:${editorVersion}`}
+                path={current.path}
+                value={content}
+                onChange={(value) =>
+                  setDrafts((currentDrafts) => ({
+                    ...currentDrafts,
+                    [current.path]: value,
+                  }))
+                }
+              />
+            </>
+          ) : (
+            <div className="empty-inline">选择左侧文件查看内容</div>
+          )}
+        </section>
+      </div>
+
+      {addOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setAddOpen(false)}
+        >
+          <div
+            className="modal add-file-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <span className="section-kicker">Custom File</span>
+                <h2>添加文件</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button subtle"
+                onClick={() => setAddOpen(false)}
+                aria-label="关闭"
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <div className="add-file-body">
+              <label className="field">
+                <span>文件路径（相对项目根目录）</span>
+                <input
+                  className="input mono"
+                  value={newPath}
+                  onChange={(event) => setNewPath(event.target.value)}
+                  placeholder="docker/nginx/conf.d/extra.conf"
+                />
+              </label>
+              <label className="field">
+                <span>文件内容（支持 {'{{VAR}}'} 模板变量）</span>
+                <textarea
+                  className="input mono add-file-content"
+                  value={newContent}
+                  onChange={(event) => setNewContent(event.target.value)}
+                  placeholder="server {&#10;  listen 80;&#10;}"
+                  spellCheck={false}
+                />
+              </label>
+              {addError && <div className="form-error">{addError}</div>}
+            </div>
+            <div className="modal-footer">
+              <span className="muted-caption">保存后写入模板表，参与生成、预览与上传。</span>
+              <div className="heading-actions">
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setAddOpen(false)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="button primary"
+                  onClick={() => void saveNewFile()}
+                  disabled={savingFile}
+                >
+                  {savingFile ? "保存中…" : "保存文件"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

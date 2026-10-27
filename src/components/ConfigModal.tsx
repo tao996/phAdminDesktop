@@ -17,6 +17,10 @@ import {
   type ConfigBackup,
   type RemoteFileStatus,
   generatedConfigStatus,
+  listEnvVars,
+  setEnvVar,
+  deleteEnvVar,
+  type EnvVarInfo,
   type GeneratedFiles,
   type GeneratedStatus,
   type DeploymentConfig,
@@ -46,6 +50,8 @@ const sections: { key: keyof NonNullable<DeploymentConfig["settings"]>; label: s
   { key: "nginx", label: "nginx" },
 ];
 
+const REQUIRED_SECRETS = ["MYSQL_PASSWORD", "REDIS_PASSWORD"];
+
 export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [config, setConfig] = useState<DeploymentConfig | null>(null);
   const [active, setActive] = useState<string>("sync");
@@ -62,6 +68,101 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   const [keepBackups, setKeepBackups] = useState(5);
   const [remoteStatus, setRemoteStatus] = useState<RemoteFileStatus[]>([]);
   const [backups, setBackups] = useState<ConfigBackup[]>([]);
+  const [envVars, setEnvVars] = useState<EnvVarInfo[]>([]);
+  const [envLoaded, setEnvLoaded] = useState(false);
+  const [envDraft, setEnvDraft] = useState<Record<string, string>>({});
+  const [envBusy, setEnvBusy] = useState<string | null>(null);
+  const [envError, setEnvError] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const loadEnv = async () => {
+    if (!canUseTauri()) return;
+    try {
+      const items = await listEnvVars(project.id);
+      setEnvVars(items);
+      setEnvDraft((current) => {
+        const next = { ...current };
+        for (const item of items) {
+          if (!item.isSecret && item.value !== null) next[item.key] = item.value;
+        }
+        return next;
+      });
+      setEnvError(null);
+    } catch (reason) {
+      setEnvError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setEnvLoaded(true);
+    }
+  };
+
+  const refreshRenderedEnv = async () => {
+    try {
+      setRenderedEnv(await renderConfigPreview(project.id));
+    } catch {
+      // 预览刷新失败不影响保存结果。
+    }
+  };
+
+  const saveEnv = async (key: string) => {
+    setEnvBusy(key);
+    setEnvError(null);
+    try {
+      await setEnvVar(project.id, key, envDraft[key] ?? "");
+      await loadEnv();
+      await refreshRenderedEnv();
+      refreshStatus();
+    } catch (reason) {
+      setEnvError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setEnvBusy(null);
+    }
+  };
+
+  const removeEnv = async (key: string) => {
+    if (!window.confirm(`移除环境变量 ${key}？密文会同时从系统凭据中删除。`)) return;
+    setEnvBusy(key);
+    setEnvError(null);
+    try {
+      await deleteEnvVar(project.id, key);
+      await loadEnv();
+      await refreshRenderedEnv();
+      refreshStatus();
+    } catch (reason) {
+      setEnvError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setEnvBusy(null);
+    }
+  };
+
+  const addEnv = async () => {
+    const key = newKey.trim().toUpperCase();
+    if (!key) {
+      setEnvError("变量名不能为空");
+      return;
+    }
+    setAdding(true);
+    setEnvBusy("new");
+    setEnvError(null);
+    try {
+      await setEnvVar(project.id, key, newValue);
+      setNewKey("");
+      setNewValue("");
+      await loadEnv();
+      await refreshRenderedEnv();
+      refreshStatus();
+    } catch (reason) {
+      setEnvError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setAdding(false);
+      setEnvBusy(null);
+    }
+  };
+
+  useEffect(() => {
+    void loadEnv();
+  }, [project.id]);
 
   const loadBackups = async () => {
     try {
@@ -71,7 +172,8 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
     }
   };
 
-  const restore = async (backup: ConfigBackup) => {    if (!window.confirm(`用 ${backup.name} 恢复 ${backup.file}？当前文件会先备份。`)) return;
+  const restore = async (backup: ConfigBackup) => {
+    if (!window.confirm(`用 ${backup.name} 恢复 ${backup.file}？当前文件会先备份。`)) return;
     try {
       await restoreConfigBackup(project.id, backup.name);
       await loadBackups();
@@ -222,6 +324,10 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
   }, [project.id]);
 
   const settings = config?.settings;
+  const missingRequired = REQUIRED_SECRETS.filter((key) => {
+    const item = envVars.find((entry) => entry.key === key);
+    return !item || !item.hasValue;
+  });
   const activeValue =
     active === "sync"
       ? config?.syncItems ?? []
@@ -260,6 +366,14 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                   onClick={() => setActive("sync")}
                 >
                   同步项 {config.syncItems.length}
+                </button>
+                <button
+                  type="button"
+                  className={active === "env" ? "active" : ""}
+                  onClick={() => setActive("env")}
+                >
+                  环境变量 {envVars.length}
+                  {envLoaded && missingRequired.length > 0 ? " ⚠" : ""}
                 </button>
                 {settings &&
                   sections.map((section) => (
@@ -429,6 +543,92 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
                 <pre className="config-json">
                   {renderedConfigPhp ?? "（生成器暂不可用）"}
                 </pre>
+              ) : active === "env" ? (
+                <div className="env-panel">
+                  {envLoaded && missingRequired.length > 0 && (
+                    <div className="env-warning">
+                      缺少必需密码：{missingRequired.join("、")}。未设置时 MySQL / Redis
+                      容器会启动失败。
+                    </div>
+                  )}
+                  {envError && <div className="runs-empty error">{envError}</div>}
+                  {envVars.length === 0 ? (
+                    <div className="runs-empty">
+                      {envLoaded
+                        ? "还没有环境变量；请在下方添加 MYSQL_PASSWORD / REDIS_PASSWORD。"
+                        : "正在读取环境变量…"}
+                    </div>
+                  ) : (
+                    <div className="env-list">
+                      {envVars.map((item) => (
+                        <div className="env-row" key={item.key}>
+                          <code className="env-key">{item.key}</code>
+                          <span className="tag">
+                            {item.isSecret ? "密文 · 系统凭据" : "明文 · SQLite"}
+                          </span>
+                          <span
+                            className={item.hasValue ? "env-state ok" : "env-state pending"}
+                          >
+                            {item.hasValue ? "已设置" : "未设置"}
+                          </span>
+                          <input
+                            className="input env-input"
+                            type={item.isSecret ? "password" : "text"}
+                            autoComplete="new-password"
+                            placeholder={item.isSecret ? "输入新密码（不会回显）" : "值"}
+                            value={envDraft[item.key] ?? ""}
+                            onChange={(event) =>
+                              setEnvDraft((current) => ({
+                                ...current,
+                                [item.key]: event.target.value,
+                              }))
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="mini-button"
+                            disabled={envBusy === item.key}
+                            onClick={() => void saveEnv(item.key)}
+                          >
+                            {envBusy === item.key ? "保存中…" : "保存"}
+                          </button>
+                          <button
+                            type="button"
+                            className="mini-button"
+                            disabled={envBusy === item.key}
+                            onClick={() => void removeEnv(item.key)}
+                          >
+                            移除
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="env-add">
+                    <input
+                      className="input"
+                      placeholder="变量名，如 MYSQL_USER"
+                      value={newKey}
+                      onChange={(event) => setNewKey(event.target.value)}
+                    />
+                    <input
+                      className="input"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="值"
+                      value={newValue}
+                      onChange={(event) => setNewValue(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="button secondary small"
+                      disabled={adding}
+                      onClick={() => void addEnv()}
+                    >
+                      {adding ? "添加中…" : "添加"}
+                    </button>
+                  </div>
+                </div>
               ) : active === "sync" ? (
                 config.syncItems.length === 0 ? (
                   <div className="runs-empty">没有导入同步项。</div>
@@ -458,7 +658,9 @@ export function ConfigModal({ project, onClose }: ConfigModalProps) {
         </div>
 
         <div className="modal-footer">
-          <span className="muted-caption">只读预览，不会修改 SQLite 或服务器配置。</span>
+          <span className="muted-caption">
+            生成物只读预览；环境变量保存到本机凭据管理器 / SQLite，不写服务器。
+          </span>
           <button type="button" className="button primary" onClick={onClose}>
             关闭
           </button>

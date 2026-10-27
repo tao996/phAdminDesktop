@@ -7,6 +7,9 @@ export interface Server {
   environment: "production" | "staging" | "local";
   status: ServerStatus;
   latency: string;
+  kind?: string;
+  port?: number;
+  username?: string;
 }
 
 export type ProjectStatus = "running" | "stopped" | "not-deployed" | "warning";
@@ -217,19 +220,19 @@ export const backups: Backup[] = [
 
 export const initialTerminalLines: Record<string, TerminalLine[]> = {
   boyu: [
-    { id: "b1", time: "12:30:01", type: "command", text: "php admin app:boyu upgrade" },
+    { id: "b1", time: "12:30:01", type: "command", text: "开始部署：同步全部 + 上传配置" },
     { id: "b2", time: "12:30:02", type: "info", text: "→ [1/2] [bundle] 主仓库" },
     { id: "b3", time: "12:30:46", type: "info", text: "→ [2/2] [ftp] src/App/Projects/boyu" },
     { id: "b4", time: "12:31:18", type: "success", text: "✔ 代码同步完成（2m 18s）" },
     { id: "b5", time: "12:31:19", type: "muted", text: "提示：更新代码后请重启 php 容器" },
   ],
   yihe: [
-    { id: "y1", time: "10:12:03", type: "command", text: "php admin app:yihe upgrade -y" },
+    { id: "y1", time: "10:12:03", type: "command", text: "开始部署：同步全部 + 上传配置" },
     { id: "y2", time: "10:12:04", type: "info", text: "→ 同步主仓库 main ..." },
     { id: "y3", time: "10:13:41", type: "success", text: "✔ 部署完成（1m 42s）" },
   ],
   vbox: [
-    { id: "v1", time: "22:02:10", type: "command", text: "php admin app:vbox init -y" },
+    { id: "v1", time: "22:02:10", type: "command", text: "本地生成配置（filesystem 目标）" },
     { id: "v2", time: "22:02:11", type: "info", text: "→ filesystem 目标，仅同步本地目录" },
     { id: "v3", time: "22:05:16", type: "success", text: "✔ 本地配置生成完成" },
   ],
