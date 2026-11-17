@@ -1,3 +1,4 @@
+mod cli;
 mod commands;
 mod config_apply;
 mod database;
@@ -5,6 +6,8 @@ mod db;
 mod db_ops;
 mod deploy;
 mod deploy_context;
+mod diagnostic_tools;
+mod diagnostics;
 mod env_vars;
 mod host_nginx;
 mod models;
@@ -31,10 +34,16 @@ pub struct AppState {
     pub tunnels: Mutex<HashMap<String, project_ops::Tunnel>>,
 }
 
+/// 控制台诊断入口，供 phadmin-cli 复用同一套数据库/SSH/脱敏逻辑。
+pub fn cli_run() -> Result<(), String> {
+    cli::run()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
@@ -79,9 +88,24 @@ pub fn run() {
             templates::reset_template,
             render::preview_template,
             render::preview_project_files,
+            render::save_project_file,
+            render::reset_project_file,
             commands::open_app_data_dir,
             commands::get_local_repo_path,
             commands::set_local_repo_path,
+            commands::set_deployment_status,
+            commands::recreate_service,
+            commands::upload_project_file,
+            commands::read_remote_project_file,
+            commands::list_application_logs,
+            commands::read_application_log,
+            commands::prune_application_logs,
+            diagnostics::collect_diagnostics,
+            diagnostic_tools::diagnostic_cli_info,
+            diagnostic_tools::diagnostic_cli_status,
+            diagnostic_tools::install_diagnostic_cli,
+            diagnostic_tools::add_diagnostic_cli_to_path,
+            diagnostic_tools::write_export_file,
             env_vars::list_env_vars,
             env_vars::set_env_var,
             env_vars::delete_env_var,

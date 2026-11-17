@@ -11,6 +11,132 @@ use crate::models::{
 #[cfg(test)]
 const SEED_JSON: &str = include_str!("../seed.json");
 
+pub struct DiagnosticDeployment {
+    pub project_name: String,
+    pub server_name: String,
+    pub host: String,
+    pub nginx_port: i64,
+}
+
+pub struct DiagnosticRunRow {
+    pub command: String,
+    pub args_json: String,
+    pub status: String,
+    pub error_summary: Option<String>,
+    pub started_at: Option<String>,
+}
+
+pub fn load_diagnostic_deployment(
+    connection: &Connection,
+    deployment_id: &str,
+) -> Result<DiagnosticDeployment, String> {
+    connection
+        .query_row(
+            "SELECT p.name, s.name, s.host, d.nginx_port
+             FROM deployments d
+             JOIN projects p ON p.id = d.project_id
+             JOIN servers s ON s.id = d.server_id
+             WHERE d.id = ?1",
+            [deployment_id],
+            |row| {
+                Ok(DiagnosticDeployment {
+                    project_name: row.get(0)?,
+                    server_name: row.get(1)?,
+                    host: row.get(2)?,
+                    nginx_port: row.get(3)?,
+                })
+            },
+        )
+        .map_err(|error| format!("读取诊断项目失败: {error}"))
+}
+
+pub fn load_diagnostic_runs(
+    connection: &Connection,
+    deployment_id: &str,
+    limit: usize,
+) -> Result<Vec<DiagnosticRunRow>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT command, args_json, status, error_summary, started_at
+             FROM runs WHERE deployment_id = ?1
+             ORDER BY started_at DESC LIMIT ?2",
+        )
+        .map_err(|error| format!("读取诊断任务失败: {error}"))?;
+    let rows = statement
+        .query_map(params![deployment_id, limit as i64], |row| {
+            Ok(DiagnosticRunRow {
+                command: row.get(0)?,
+                args_json: row.get(1)?,
+                status: row.get(2)?,
+                error_summary: row.get(3)?,
+                started_at: row.get(4)?,
+            })
+        })
+        .map_err(|error| format!("读取诊断任务失败: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取诊断任务失败: {error}"))
+}
+
+pub struct ProjectDeploymentRow {
+    pub project_name: String,
+    pub deployment_id: String,
+    pub server_name: String,
+    pub status: String,
+    pub remote_path: String,
+}
+
+pub fn list_project_deployments(
+    connection: &Connection,
+) -> Result<Vec<ProjectDeploymentRow>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT p.name, d.id, s.name, d.status, d.remote_path
+             FROM deployments d
+             JOIN projects p ON p.id = d.project_id
+             JOIN servers s ON s.id = d.server_id
+             ORDER BY p.name, s.name",
+        )
+        .map_err(|error| format!("读取项目失败: {error}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(ProjectDeploymentRow {
+                project_name: row.get(0)?,
+                deployment_id: row.get(1)?,
+                server_name: row.get(2)?,
+                status: row.get(3)?,
+                remote_path: row.get(4)?,
+            })
+        })
+        .map_err(|error| format!("读取项目失败: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取项目失败: {error}"))
+}
+
+pub fn resolve_project_deployment(
+    connection: &Connection,
+    query: &str,
+) -> Result<Option<String>, String> {
+    connection
+        .query_row(
+            "SELECT d.id
+             FROM deployments d
+             JOIN projects p ON p.id = d.project_id
+             WHERE p.name = ?1 OR d.id = ?1
+             ORDER BY d.created_at
+             LIMIT 1",
+            [query],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("解析项目失败: {error}"))
+}
+
+pub fn open_read_only(path: &Path) -> Result<Connection, Box<dyn Error>> {
+    let connection = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    connection.execute_batch("PRAGMA busy_timeout = 5000;")?;
+    Ok(connection)
+}
+
 pub fn open(path: &Path) -> Result<Connection, Box<dyn Error>> {
     let connection = Connection::open(path)?;
     // DELETE 日志模式：数据库保持单文件；写入瞬间会出现 -journal，提交后自动删除。
@@ -127,6 +253,14 @@ pub(crate) fn migrate(connection: &Connection) -> rusqlite::Result<()> {
             docker_images_json TEXT NOT NULL DEFAULT '{}',
             router_json        TEXT NOT NULL DEFAULT '{}',
             nginx_json         TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE TABLE IF NOT EXISTS deployment_files (
+            deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+            path          TEXT NOT NULL,
+            content       TEXT NOT NULL,
+            updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (deployment_id, path)
         );
 
         CREATE TABLE IF NOT EXISTS runs (
@@ -727,6 +861,29 @@ pub struct ProjectConfigRow {
     pub sync_items: Vec<(String, String, String, String, String, String)>,
 }
 
+pub fn set_deployment_status(
+    connection: &Connection,
+    deployment_id: &str,
+    status: &str,
+) -> Result<(), String> {
+    if !matches!(
+        status,
+        "running" | "stopped" | "warning" | "not-deployed" | "unknown" | "disconnected"
+    ) {
+        return Err(format!("未知部署状态: {status}"));
+    }
+    let changed = connection
+        .execute(
+            "UPDATE deployments SET status = ?2, updated_at = datetime('now') WHERE id = ?1",
+            params![deployment_id, status],
+        )
+        .map_err(|error| format!("更新部署状态失败: {error}"))?;
+    if changed == 0 {
+        return Err("部署不存在".to_string());
+    }
+    Ok(())
+}
+
 pub fn load_project_config_row(
     connection: &Connection,
     deployment_id: &str,
@@ -937,6 +1094,70 @@ pub fn set_setting(connection: &Connection, key: &str, value: &str) -> Result<()
         )
         .map_err(|error| format!("保存设置失败: {error}"))?;
     Ok(())
+}
+
+pub fn get_deployment_file(
+    connection: &Connection,
+    deployment_id: &str,
+    path: &str,
+) -> Result<Option<String>, String> {
+    connection
+        .query_row(
+            "SELECT content FROM deployment_files WHERE deployment_id = ?1 AND path = ?2",
+            params![deployment_id, path],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("读取文件覆盖失败: {error}"))
+}
+
+pub fn save_deployment_file(
+    connection: &Connection,
+    deployment_id: &str,
+    path: &str,
+    content: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "INSERT INTO deployment_files (deployment_id, path, content)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(deployment_id, path) DO UPDATE SET
+                content = excluded.content,
+                updated_at = datetime('now')",
+            params![deployment_id, path, content],
+        )
+        .map_err(|error| format!("保存文件覆盖失败: {error}"))?;
+    Ok(())
+}
+
+pub fn delete_deployment_file(
+    connection: &Connection,
+    deployment_id: &str,
+    path: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM deployment_files WHERE deployment_id = ?1 AND path = ?2",
+            params![deployment_id, path],
+        )
+        .map_err(|error| format!("清除文件覆盖失败: {error}"))?;
+    Ok(())
+}
+
+pub fn list_deployment_files(
+    connection: &Connection,
+    deployment_id: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT path, content FROM deployment_files WHERE deployment_id = ?1 ORDER BY path",
+        )
+        .map_err(|error| format!("读取文件覆盖失败: {error}"))?;
+    let rows = statement
+        .query_map([deployment_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|error| format!("读取文件覆盖失败: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取文件覆盖失败: {error}"))
 }
 
 #[cfg(test)]

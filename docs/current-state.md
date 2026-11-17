@@ -336,3 +336,126 @@ cargo fmt --check
 - 类型映射：`.env`/`.ini`/`.cnf` → properties，`.yaml/.yml` → YAML，`.conf` → Nginx，`.php` → PHP，其它纯文本；
 - 新增「添加文件」：输入相对路径与内容后写入模板表（自定义模板），立即参与预览、生成与上传；
 - 主包体积约从 331 KB 增至 919 KB（未拆包，按用户要求）。
+### 状态与私钥选择
+
+- 应用启动时，上次记录的「运行中/异常」项目显示「未检测」，不再直接显示运行中；只有测试连接成功后才变为「运行中」；
+- 测试连接失败、概览/容器刷新失败时项目状态变为「连接失败」，直到下一次测试连接成功；
+- 服务器私钥认证新增「选择文件」按钮，通过系统文件对话框选择私钥并回填路径。
+### 项目状态语义（补充）
+
+- 启动时只有 `not-deployed` / `disconnected` 等“非运行”状态原样显示；上次的 `running` / `warning` 统一显示「未检测」；
+- 测试连接失败、容器/概览刷新失败会把 `disconnected` 写入 SQLite，重启后仍显示「连接失败」，直到下一次测试连接成功；
+- 测试连接成功写回 `running`。
+### git 同步兼容旧版 git
+
+- 线上 yihe 服务器 git 1.8.3.1 不支持 `git -C`，同步命令改为：
+  `git --git-dir=<目标>/.git --work-tree=<目标> pull --ff-only`；
+- 第二同步项（如 `src/App/Modules/yihe`）会拼接成绝对路径后执行；
+- 已在 yihe 实测：主仓库 fast-forward 56 个文件，模块仓库 `186f55f..1221e35` 更新成功。
+### 同步文件
+
+- 「部署与升级」新增「同步文件」按钮：准备运行目录 → 生成 `.env` / `nginx.conf` / `docker-compose.yaml` / `config.php` / 容器配置 / 自定义模板 → 上传并校验；
+- 不执行容器启动或 Nginx 重载；预览中未保存的临时编辑不会上传，模板/配置本身会重新渲染；
+- 上传前对目标文件做 `.bak-时间戳` 备份。
+- 「同步文件」终端会输出目标项目目录和每个上传文件的完整远端路径（如 `/data/yihe/.env`、`/data/yihe/src/config/config.php`）。
+### 同步文件日志
+
+- 上传日志只显示项目内路径，例如 `$ upload .env -> /data/yihe/.env`，不再带服务器 IP；
+- `$ verify .env: content matches` 表示上传后从服务器回读该文件，与本地生成内容逐字节比较；不一致会报「上传后校验失败」并中止；
+- 目前对 `.env`、`nginx.conf`、`docker-compose.yaml`、`config.php` 做回读校验；容器配置和自定义模板只上传。
+### 文件预览保存
+
+- 右侧新增「保存」按钮：把当前编辑内容写入 `deployment_files(deployment_id, path, content)`，切换面板/重启后仍保留；
+- 「重置修改」会删除该文件的覆盖并恢复模板生成内容；
+- 保存的覆盖参与「同步文件」与「部署」：`write_generated_config` 在生成后应用覆盖，再上传/校验；
+- `src/config/config.php` 的覆盖会写入生成目录的 `config.php`，再上传到项目 `src/config/config.php`。
+### 同步文件不阻塞界面
+
+- `prepare_runtime_assets`、`write_generated_config`、`apply_generated_config` 标记为 `#[tauri::command(async)]`，在后台线程执行；
+- 上传期间界面可继续切换页签，终端日志可继续追加；
+- 实测点击同步文件后立即切到「概览」，页面无冻结。
+### 容器重建 / 移除
+
+- 容器行新增「重建」「移除」：
+  - 重建：`docker compose up -d --force-recreate --no-deps <service>`；重建 `php` 后自动 `docker compose exec -T nginx nginx -s reload`，避免 Nginx 缓存旧容器 IP 导致 502；
+  - 移除：`docker compose rm -sf <service>`，需二次确认，镜像/数据卷/项目文件保留；
+- yihe 实测：php 从 5.13.0 重建为 5.23.0，Nginx 自动重载后 `https://yihe.gu19.cn/m/tao` 返回 200；
+- 500 原因可在「容器 → php → 日志」查看（本次为 `config.php` 缺逗号导致 PHP Parse error）。
+### 文件预览单文件上传 / 线上对照
+
+- 文件预览右侧新增：
+  - 「上传」：把当前编辑内容直接上传到项目内同名路径（含未保存草稿），上传后回读校验，不生成 `.bak` 备份；
+  - 「查看」：读取线上同名文件，在右侧分栏显示，不替换本地编辑区；可关闭恢复单栏；
+- 后端命令：`upload_project_file`、`read_remote_project_file`。
+
+### 应用运行日志
+
+- 「日志」页新增「应用运行日志」卡片：读取项目 `src/storage/logs` 下的文件列表，支持选择指定文件并查看最近 500 行；
+- 原「运行日志」卡片更名为「任务记录」，仍展示 runs 历史；
+- 后端命令：`list_application_logs`、`read_application_log`。
+### 日志页顺序
+
+- 应用运行日志优先展示在顶部；
+- 任务记录默认折叠，点击「展开查看」后再显示筛选与导出；
+- 应用日志列表固定高度滚动，避免日志文件多时把任务记录推到页面很下方。
+
+### 线上日志巡检（2026-11-02）
+
+- 修复 `.env` 被生成值覆盖导致的 MySQL 认证失败：数据库名 `yihe_db` → `yihe`，密码恢复为数据卷中的旧密码；项目配置同步修正；
+- Redis 5 次 `getaddrinfo ... redis failed` 为容器重建后的短暂 DNS 异常，现已可解析且 PING 正常；
+- 4 次 `PhpController handler class cannot be loaded` 来自外部扫描 `/index.php?option=com_acym...`，非业务接口；
+- 1 次 Google OAuth 授权失败需检查 OAuth 配置；
+- 应用日志会记录登录参数明文密码，建议在应用日志层脱敏。
+- 已清除 yihe 在 `deployment_files` 中残留的 `.env` / `src/config/config.php` 覆盖；这两个覆盖是线上凭据与 PHP 语法错误的来源，后续同步将使用修正后的项目配置重新生成。
+### 应用日志保留策略
+
+- 「应用运行日志」新增「只保留最近7天」按钮：二次确认后删除 `src/storage/logs` 下超过 7 天的 `*.log` 文件；
+- 只处理普通 `.log` 文件，保留 `.gitkeep` 和目录；
+- 清理后自动刷新日志列表，并显示清理数量。
+### 诊断阶段 1（本地规则）
+
+- 新增 `diagnostics.rs` 与 `collect_diagnostics` 命令：采集 HTTP 状态、容器状态、应用日志、php/nginx 日志、Nginx 错误日志、最近任务；
+- 本地规则：MySQL 1045、PHP Parse error、Redis DNS、Nginx 502/upstream、DB 连接失败、磁盘满、权限、容器未运行、扫描请求；
+- 日志发送前脱敏（password/token/secret/authorization/cookie/Bearer）；
+- 规则只看最近 120 分钟日志，历史错误可在「采集详情」查看；
+- 日志页新增「运行诊断」：展示 HTTP、容器、发现数、脱敏数、证据与采集详情，可复制 JSON 报告；
+- 阶段 2 已实现：`phadmin-cli` 只读诊断命令，供用户自己的 Claude Code / Codex 调用，详见 [ai-diagnostics.md](ai-diagnostics.md)。
+
+### 诊断阶段 2（phadmin-cli）
+
+- 新增 console 二进制 `phadmin-cli`，共享 `diagnostics` / `db` / 规则与脱敏逻辑；
+- 命令：`projects`、`diagnose`/`error`、`logs`、`containers`、`export`；
+- 支持 `--format markdown|json`、`--output`、`--source`；
+- 只读打开 SQLite（不执行 migration），复用桌面端 SSH 密码/私钥配置；
+- 已用 yihe 实测：projects、diagnose JSON/markdown、containers、logs、导出文件均正常；
+- Windows 调试包装脚本 `phadmin-cli.cmd`；自动加入 PATH/安装包 sidecar 待阶段 3。
+### 诊断阶段 3（GUI 协作）
+
+- 故障诊断卡片新增：
+  - 「复制 AI 指令」：生成包含项目名、CLI 命令、分析约束的提示词；
+  - 「导出报告」：系统保存对话框导出 JSON 诊断报告；
+  - 「安装 CLI」：把同目录 `phadmin-cli` 复制到应用数据 `bin`，复制指令使用完整路径，无需配置 PATH；
+- 新增命令：`diagnostic_cli_info`、`install_diagnostic_cli`、`write_export_file`；
+- 剪贴板写入带超时与 `execCommand` 回退，失败时显示提示；
+- 阶段 3 仍不自动修复、不自动执行命令。
+- 发布包通过 Tauri `externalBin` 携带 `phadmin-cli`；`beforeBuildCommand` 会自动构建并生成 target-triple sidecar，`beforeDevCommand` 会准备 debug sidecar；
+- 安装 CLI 仍复制到应用数据 `bin`，AI 指令使用完整路径，无需 PATH；如需全局 `phadmin-cli` 命令，可手动把该目录加入 PATH。
+### 设置：CLI PATH 检查
+
+- 「设置」新增「命令行诊断」行：显示 `phadmin-cli` 安装路径、是否已在用户 PATH；
+- 「检查」重新读取用户 PATH（Windows 读取 `HKCU\Environment\Path`，保留原始值类型，避免 `%VAR%` 被展开后写回）；
+- 「安装并添加 PATH」/「添加到 PATH」：确保 CLI 安装到应用数据 `bin`，追加到用户 PATH 并广播 `WM_SETTINGCHANGE`；
+- 已在开发机实测：状态从“未加入 PATH”变为“已在 PATH”，注册表 PATH 未被截断。
+### 部署操作提示
+
+- 已移除右上角「部署 / 升级」大按钮，部署入口保留在「部署与升级」页签和概览快捷操作；
+- 「部署与升级」中的说明合并为一个提示区域，按行说明同步全部 / 同步文件 / 部署密钥 / 开始部署；
+- 各按钮仍保留悬停提示。
+### 容器 / Nginx 面板提示
+
+- 移除「容器」面板的 PHP 镜像升级提示条（authus/phalcon 版本说明）；
+- 「Nginx」面板的操作说明合并为一个区域，按行说明：
+  - 语法检查并重载
+  - 发布配置
+  - 移除配置
+  - 环境检查

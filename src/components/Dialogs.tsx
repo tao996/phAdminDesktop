@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
+  canUseTauri,
+  addDiagnosticCliToPath,
   countServerReferences,
+  diagnosticCliStatus,
   getLocalRepoPath,
   getServerConfig,
   setLocalRepoPath,
+  type DiagnosticCliStatus,
   type ServerInput,
 } from "../api/workspace";
 import { Icon } from "./Icon";
@@ -93,6 +98,25 @@ export function ServerModal({
       cancelled = true;
     };
   }, [serverId]);
+
+  const pickKeyFile = async () => {
+    if (!canUseTauri()) {
+      setError("浏览器预览模式无法打开系统文件选择器");
+      return;
+    }
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        title: "选择 SSH 私钥文件",
+      });
+      if (typeof selected === "string") {
+        setKeyFile(selected);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -233,12 +257,23 @@ export function ServerModal({
               <>
                 <label className="field">
                   <span>私钥路径</span>
-                  <input
-                    className="input mono"
-                    value={keyFile}
-                    onChange={(event) => setKeyFile(event.target.value)}
-                    placeholder="C:\\Users\\me\\.ssh\\id_ed25519"
-                  />
+                  <div className="field-input-action">
+                    <input
+                      className="input mono"
+                      value={keyFile}
+                      onChange={(event) => setKeyFile(event.target.value)}
+                      placeholder="C:\\Users\\me\\.ssh\\id_ed25519"
+                    />
+                    <button
+                      type="button"
+                      className="button secondary small"
+                      onClick={() => void pickKeyFile()}
+                      title="从系统中选择私钥文件"
+                    >
+                      <Icon name="folder" size={13} />
+                      选择文件
+                    </button>
+                  </div>
                 </label>
                 <label className="field">
                   <span>私钥口令（可选）</span>
@@ -439,6 +474,46 @@ interface SettingsModalProps {
 export function SettingsModal({ onClose, onOpenDataDir }: SettingsModalProps) {
   const [localRepo, setLocalRepo] = useState("");
   const [repoStatus, setRepoStatus] = useState<string | null>(null);
+  const [cliStatus, setCliStatus] = useState<DiagnosticCliStatus | null>(null);
+  const [cliNotice, setCliNotice] = useState("");
+  const [checkingCli, setCheckingCli] = useState(false);
+  const [addingCliPath, setAddingCliPath] = useState(false);
+
+  const loadCliStatus = async () => {
+    if (!canUseTauri()) return;
+    setCheckingCli(true);
+    setCliNotice("");
+    try {
+      setCliStatus(await diagnosticCliStatus());
+    } catch (reason) {
+      setCliNotice(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setCheckingCli(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadCliStatus();
+  }, []);
+
+  const addCliToPath = async () => {
+    if (addingCliPath) return;
+    setAddingCliPath(true);
+    setCliNotice("");
+    try {
+      const status = await addDiagnosticCliToPath();
+      setCliStatus(status);
+      setCliNotice(
+        status.onPath
+          ? "已加入用户 PATH，新开的终端即可使用 phadmin-cli"
+          : "CLI 已安装，但 PATH 尚未包含该目录",
+      );
+    } catch (reason) {
+      setCliNotice(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setAddingCliPath(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -512,6 +587,51 @@ export function SettingsModal({ onClose, onOpenDataDir }: SettingsModalProps) {
               </button>
             </div>
           </div>
+          <div className="settings-row">
+            <div>
+              <strong>命令行诊断</strong>
+              <small>phadmin-cli 是否已安装并加入用户 PATH</small>
+            </div>
+            <div className="heading-actions">
+              <code className="settings-cli-command">
+                {cliStatus?.command ?? (checkingCli ? "检查中…" : "未检测")}
+              </code>
+              {cliStatus && (
+                <span className={cliStatus.onPath ? "tag success" : "tag warning"}>
+                  {cliStatus.onPath ? "已在 PATH" : "未加入 PATH"}
+                </span>
+              )}
+              <button
+                type="button"
+                className="button secondary small"
+                disabled={checkingCli || addingCliPath}
+                onClick={() => void loadCliStatus()}
+              >
+                <Icon name="refresh" size={13} />
+                检查
+              </button>
+              {(!cliStatus?.onPath || !cliStatus?.installed) && (
+                <button
+                  type="button"
+                  className="button primary small"
+                  disabled={addingCliPath}
+                  onClick={() => void addCliToPath()}
+                >
+                  <Icon name="plus" size={13} />
+                  {addingCliPath
+                    ? "添加中…"
+                    : cliStatus?.installed
+                      ? "添加到 PATH"
+                      : "安装并添加 PATH"}
+                </button>
+              )}
+            </div>
+          </div>
+          {cliNotice && (
+            <div className="settings-note">
+              <span className="muted-caption">{cliNotice}</span>
+            </div>
+          )}
           <div className="settings-row">
             <div>
               <strong>本地仓库</strong>

@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::OptionalExtension;
+use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
 use crate::AppState;
@@ -15,6 +16,40 @@ use crate::runner;
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn target_relative_path(target: &runner::Target, relative: &str) -> String {
+    if target.kind == "filesystem" {
+        PathBuf::from(target.remote_path.trim_end_matches(['/', '\\']))
+            .join(relative)
+            .to_string_lossy()
+            .to_string()
+    } else {
+        format!(
+            "{}/{}",
+            target.remote_path.trim_end_matches('/'),
+            relative.trim_start_matches('/')
+        )
+    }
+}
+
+fn read_target_text(target: &runner::Target, path: &str) -> Result<String, String> {
+    if target.kind == "filesystem" {
+        return fs::read_to_string(path).map_err(|error| format!("读取 {path} 失败: {error}"));
+    }
+    let (success, output) = runner::capture_target_command(target, "cat", &[path.to_string()])?;
+    if !success {
+        return Err(format!("读取 {path} 失败: {}", output.trim()));
+    }
+    Ok(output)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplicationLogFile {
+    pub name: String,
+    pub size: u64,
+    pub modified: i64,
 }
 
 fn path_excluded(relative: &str, excludes: &[String]) -> bool {
@@ -131,6 +166,314 @@ pub fn delete_server(state: State<'_, AppState>, server_id: String) -> Result<()
         .lock()
         .map_err(|error| format!("数据库连接被占用: {error}"))?;
     db::delete_server(&connection, &server_id)
+}
+
+#[tauri::command(async)]
+pub fn recreate_service(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    service: String,
+) -> Result<String, String> {
+    if service != "all" && !matches!(service.as_str(), "nginx" | "php" | "mysql" | "redis") {
+        return Err(format!("不支持重建的服务: {service}"));
+    }
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+
+    let mut args = vec!["compose".to_string(), "up".to_string(), "-d".to_string()];
+    if service != "all" {
+        args.push("--force-recreate".to_string());
+        args.push("--no-deps".to_string());
+        args.push(service.clone());
+    }
+    let (success, output) = runner::capture_target_command(&target, "docker", &args)?;
+    if !success {
+        return Err(format!("重建 {service} 失败: {}", output.trim()));
+    }
+    let mut transcript = output;
+
+    // php（或全部服务）重建后容器 IP 会变化，Nginx 必须重新解析上游。
+    if service == "php" || service == "all" {
+        let (reloaded, reload_output) = runner::capture_target_command(
+            &target,
+            "docker",
+            &[
+                "compose".to_string(),
+                "exec".to_string(),
+                "-T".to_string(),
+                "nginx".to_string(),
+                "nginx".to_string(),
+                "-s".to_string(),
+                "reload".to_string(),
+            ],
+        )?;
+        transcript.push_str(&reload_output);
+        if !reloaded {
+            return Err(format!(
+                "php 已重建，但 Nginx 重载失败: {}",
+                reload_output.trim()
+            ));
+        }
+    }
+
+    Ok(transcript)
+}
+
+#[tauri::command(async)]
+pub fn upload_project_file(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    path: String,
+    content: String,
+) -> Result<String, String> {
+    let relative = crate::templates::normalize_path(&path)?;
+    if content.len() > 1024 * 1024 {
+        return Err("文件内容超过 1 MB 限制".to_string());
+    }
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    let destination = target_relative_path(&target, &relative);
+    if let Some(parent) = Path::new(&destination).parent() {
+        runner::ensure_target_dir(&target, &parent.to_string_lossy())?;
+    }
+    runner::upload_text_to_target(&target, &destination, &content)?;
+    let remote = read_target_text(&target, &destination)?;
+    if remote != content {
+        return Err(format!("{relative} 上传后校验失败"));
+    }
+    Ok(format!(
+        "$ upload {relative} -> {destination}\n$ verify {relative}: content matches"
+    ))
+}
+
+#[tauri::command(async)]
+pub fn read_remote_project_file(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    path: String,
+) -> Result<String, String> {
+    let relative = crate::templates::normalize_path(&path)?;
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    let destination = target_relative_path(&target, &relative);
+    let content = read_target_text(&target, &destination)?;
+    if content.len() > 2 * 1024 * 1024 {
+        return Err("文件超过 2 MB，无法在预览中打开".to_string());
+    }
+    Ok(content)
+}
+
+fn tail_text(content: &str, limit: usize) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines.len().saturating_sub(limit);
+    lines[start..].join("\n")
+}
+
+#[tauri::command(async)]
+pub fn list_application_logs(
+    state: State<'_, AppState>,
+    deployment_id: String,
+) -> Result<Vec<ApplicationLogFile>, String> {
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    let directory = target_relative_path(&target, "src/storage/logs");
+    let mut files = Vec::new();
+    if target.kind == "filesystem" {
+        match fs::read_dir(&directory) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let metadata = match entry.metadata() {
+                        Ok(value) if value.is_file() => value,
+                        _ => continue,
+                    };
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if !name.ends_with(".log") {
+                        continue;
+                    }
+                    let modified = metadata
+                        .modified()
+                        .ok()
+                        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+                        .map(|value| value.as_secs() as i64)
+                        .unwrap_or(0);
+                    files.push(ApplicationLogFile {
+                        name,
+                        size: metadata.len(),
+                        modified,
+                    });
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("读取日志目录失败: {error}")),
+        }
+    } else {
+        let script = format!(
+            "find {} -maxdepth 1 -type f -name '*.log' -printf '%f\\t%s\\t%T@\\n'",
+            shell_quote(&directory)
+        );
+        let (success, output) =
+            runner::capture_target_command(&target, "sh", &["-lc".to_string(), script])?;
+        if !success {
+            return Err(format!("读取日志目录失败: {}", output.trim()));
+        }
+        for line in output.lines() {
+            let mut parts = line.split('\t');
+            let (Some(name), Some(size), Some(modified)) =
+                (parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            let Ok(size) = size.parse::<u64>() else {
+                continue;
+            };
+            let modified = modified
+                .parse::<f64>()
+                .map(|value| value as i64)
+                .unwrap_or(0);
+            files.push(ApplicationLogFile {
+                name: name.to_string(),
+                size,
+                modified,
+            });
+        }
+    }
+    files.sort_by_key(|file| std::cmp::Reverse(file.modified));
+    Ok(files)
+}
+
+#[tauri::command(async)]
+pub fn read_application_log(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    name: String,
+) -> Result<String, String> {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
+        return Err("日志文件名不正确".to_string());
+    }
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    let relative = format!("src/storage/logs/{name}");
+    let path = target_relative_path(&target, &relative);
+    if target.kind == "filesystem" {
+        let content =
+            fs::read_to_string(&path).map_err(|error| format!("读取日志 {name} 失败: {error}"))?;
+        return Ok(tail_text(&content, 500));
+    }
+    let (success, output) = runner::capture_target_command(
+        &target,
+        "tail",
+        &["-n".to_string(), "500".to_string(), path],
+    )?;
+    if !success {
+        return Err(format!("读取日志 {name} 失败: {}", output.trim()));
+    }
+    Ok(output)
+}
+
+#[tauri::command(async)]
+pub fn prune_application_logs(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    keep_days: u32,
+) -> Result<Vec<String>, String> {
+    let keep_days = keep_days.clamp(1, 365);
+    let target = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|error| format!("数据库连接被占用: {error}"))?;
+        runner::load_target(&connection, &deployment_id)?
+    };
+    let directory = target_relative_path(&target, "src/storage/logs");
+    let mut removed = Vec::new();
+
+    if target.kind == "filesystem" {
+        let cutoff = SystemTime::now()
+            .checked_sub(Duration::from_secs(u64::from(keep_days) * 86400))
+            .unwrap_or(UNIX_EPOCH);
+        match fs::read_dir(&directory) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let metadata = match entry.metadata() {
+                        Ok(value) if value.is_file() => value,
+                        _ => continue,
+                    };
+                    let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
+                    if modified >= cutoff {
+                        continue;
+                    }
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if !name.ends_with(".log") {
+                        continue;
+                    }
+                    fs::remove_file(entry.path())
+                        .map_err(|error| format!("删除日志 {name} 失败: {error}"))?;
+                    removed.push(name);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("读取日志目录失败: {error}")),
+        }
+    } else {
+        let script = format!(
+            "find {} -maxdepth 1 -type f -name '*.log' -mtime +{} -printf '%f\\n' -delete",
+            shell_quote(&directory),
+            keep_days
+        );
+        let (success, output) =
+            runner::capture_target_command(&target, "sh", &["-lc".to_string(), script])?;
+        if !success {
+            return Err(format!("清理日志失败: {}", output.trim()));
+        }
+        removed.extend(
+            output
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_string),
+        );
+    }
+
+    removed.sort();
+    Ok(removed)
+}
+
+#[tauri::command]
+pub fn set_deployment_status(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    status: String,
+) -> Result<(), String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    db::set_deployment_status(&connection, &deployment_id, &status)
 }
 
 #[tauri::command]
@@ -320,9 +663,12 @@ pub fn sync_git_item(
         let repo_exists = runner::target_path_exists(&target, &git_dir)?;
 
         let args = if repo_exists {
+            // 兼容旧版 git：不使用 `git -C`（部分服务器 git 不支持），
+            // 通过 --git-dir / --work-tree 指定仓库目录。
+            let repo_root = target_text.trim_end_matches('/');
             vec![
-                "-C".to_string(),
-                target_text,
+                format!("--git-dir={repo_root}/.git"),
+                format!("--work-tree={repo_root}"),
                 "pull".to_string(),
                 "--ff-only".to_string(),
             ]
@@ -555,9 +901,8 @@ pub fn sync_bundle_item(
             );
             runner::upload_to_target(&target, &bundle_path, &remote_bundle)?;
             transcript.push_str(&format!(
-                "$ scp {} -> {}:{}\n",
+                "$ scp {} -> {}\n",
                 bundle_path.display(),
-                target.host,
                 remote_bundle
             ));
 
@@ -752,12 +1097,7 @@ pub fn sync_ftp_item(
                 .unwrap_or_else(|| "/tmp".to_string());
             runner::ensure_target_dir(&target, &parent)?;
             runner::upload_dir_to_target(&target, &source, &dest)?;
-            transcript.push_str(&format!(
-                "$ scp -r {} -> {}:{}\n",
-                source.display(),
-                target.host,
-                dest
-            ));
+            transcript.push_str(&format!("$ scp -r {} -> {}\n", source.display(), dest));
         }
 
         Ok(transcript)

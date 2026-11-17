@@ -12,7 +12,13 @@ export interface Server {
   username?: string;
 }
 
-export type ProjectStatus = "running" | "stopped" | "not-deployed" | "warning";
+export type ProjectStatus =
+  | "running"
+  | "stopped"
+  | "not-deployed"
+  | "warning"
+  | "unknown"
+  | "disconnected";
 
 export interface Container {
   service: string;

@@ -70,6 +70,8 @@ import {
   deleteServer,
   createProject,
   updateProject,
+  setDeploymentStatus,
+  recreateService,
   openAppDataDir,
   type ProjectCreateInput,
   type ServerInput,
@@ -155,13 +157,19 @@ function App() {
     null;
   const activeLines = activeProject ? terminals[activeProject.id] ?? [] : [];
 
-  const applyWorkspace = (data: WorkspaceResponse) => {
+  const applyWorkspace = (data: WorkspaceResponse, initial = false) => {
     const projectById = new Map(data.projects.map((project) => [project.id, project]));
     const nextProjects: Project[] = data.deployments.map((deployment) => {
       const project = projectById.get(deployment.projectId);
       const mock = seedProjects.find(
         (item) => item.id === deployment.id || item.name === project?.name,
       );
+      const storedStatus = deployment.status as ProjectStatus;
+      // 启动时不把上次会话的“运行中”当作当前状态，需重新测试连接。
+      const status: ProjectStatus =
+        initial && (storedStatus === "running" || storedStatus === "warning")
+          ? "unknown"
+          : storedStatus;
       return {
         id: deployment.id,
         serverId: deployment.serverId,
@@ -171,7 +179,7 @@ function App() {
         domain: deployment.domain,
         port: deployment.nginxPort,
         branch: deployment.branch,
-        status: deployment.status as ProjectStatus,
+        status,
         ssl: deployment.ssl,
         lastDeploy: formatDbTime(deployment.lastDeploy),
         backups: deployment.backups,
@@ -204,6 +212,15 @@ function App() {
     setActiveId(preferredProject?.id ?? "");
   };
 
+  const setProjectStatus = (projectId: string, status: ProjectStatus) => {
+    setProjectList((current) =>
+      current.map((project) => (project.id === projectId ? { ...project, status } : project)),
+    );
+    void setDeploymentStatus(projectId, status).catch((error: unknown) => {
+      console.error("保存部署状态失败", error);
+    });
+  };
+
   useEffect(() => {
     const block = (event: MouseEvent) => event.preventDefault();
     document.addEventListener("contextmenu", block);
@@ -222,7 +239,7 @@ function App() {
 
     void loadWorkspace()
       .then((data) => {
-        if (!cancelled) applyWorkspace(data);
+        if (!cancelled) applyWorkspace(data, true);
       })
       .catch((error: unknown) => {
         console.error("加载 SQLite 工作区失败，继续使用 mock 数据", error);
@@ -639,6 +656,35 @@ function App() {
     }
   };
 
+  const handleSyncFiles = async (): Promise<void> => {
+    if (!activeProject) return;
+    if (!canUseTauri()) {
+      runAction("phadmin:sync-files", "同步文件");
+      return;
+    }
+    const projectId = activeProject.id;
+    const logText = (text: string) => {
+      text
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .forEach((line) => appendLine(projectId, "info", line));
+    };
+    try {
+      appendLine(projectId, "info", "同步文件：准备运行目录");
+      logText(await prepareRuntimeAssets(projectId));
+      appendLine(projectId, "info", `同步文件：目标项目目录 ${activeProject.path}`);
+      appendLine(projectId, "info", "同步文件：生成配置与自定义模板");
+      await writeGeneratedConfig(projectId);
+      appendLine(projectId, "info", "同步文件：上传到项目目录");
+      logText(await applyGeneratedConfig(projectId, true));
+      appendLine(projectId, "success", "文件同步完成");
+      setToast({ id: Date.now(), message: "文件已同步到项目" });
+    } catch (error) {
+      appendLine(projectId, "error", `文件同步失败：${String(error)}`);
+      setToast({ id: Date.now(), message: "文件同步失败，详见终端" });
+    }
+  };
+
   const handleStartDeploy = async (restartPhp: boolean) => {
     if (!activeProject) return;
     if (!canUseTauri()) {
@@ -930,6 +976,36 @@ function App() {
     }
   };
 
+  const handleRecreateService = async (service: string): Promise<void> => {
+    if (!activeProject) return;
+    const projectId = activeProject.id;
+    const command =
+      service === "all"
+        ? "$ docker compose up -d"
+        : `$ docker compose up -d --force-recreate --no-deps ${service}`;
+    appendLine(projectId, "command", command);
+    try {
+      const output = await recreateService(projectId, service);
+      output
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .forEach((line) => appendLine(projectId, "info", line));
+      appendLine(
+        projectId,
+        "success",
+        service === "all" ? "全部服务已重建" : `${service} 已按当前镜像重建`,
+      );
+      setRunsVersion((value) => value + 1);
+      setToast({
+        id: Date.now(),
+        message: service === "all" ? "全部服务已重建" : `${service} 已重建`,
+      });
+    } catch (error) {
+      appendLine(projectId, "error", `重建 ${service} 失败：${String(error)}`);
+      setToast({ id: Date.now(), message: `重建 ${service} 失败，详见终端` });
+    }
+  };
+
   const handleTestConnection = () => {
     if (!activeProject) return;
     const projectId = activeProject.id;
@@ -942,10 +1018,25 @@ function App() {
     }
 
     setToast({ id: Date.now(), message: "正在连接服务器并读取容器状态…" });
-    void runCommand(projectId, "docker", ["compose", "ps"]).catch((error: unknown) => {
-      appendLine(projectId, "error", `连接失败：${String(error)}`);
-      setToast({ id: Date.now(), message: "连接失败，请检查 SSH / Docker" });
-    });
+    void runCommand(projectId, "docker", ["compose", "ps"])
+      .then(async (runId) => {
+        const unlisten = await listen<RunFinished>("run-finished", (event) => {
+          if (event.payload.runId !== runId) return;
+          unlisten();
+          if (event.payload.status === "succeeded") {
+            setProjectStatus(projectId, "running");
+            setToast({ id: Date.now(), message: "连接成功，容器状态已刷新" });
+          } else {
+            setProjectStatus(projectId, "disconnected");
+            setToast({ id: Date.now(), message: "连接失败，请检查 SSH / Docker" });
+          }
+        });
+      })
+      .catch((error: unknown) => {
+        appendLine(projectId, "error", `连接失败：${String(error)}`);
+        setProjectStatus(projectId, "disconnected");
+        setToast({ id: Date.now(), message: "连接失败，请检查 SSH / Docker" });
+      });
   };
 
   const handlePaletteRun = (command: string, label: string) => {
@@ -1056,12 +1147,17 @@ function App() {
             onSyncBundleItem={handleSyncBundleItem}
             onSyncFtpItem={handleSyncFtpItem}
             onSyncAll={handleSyncAllItems}
+            onSyncFiles={handleSyncFiles}
+            onRecreateService={handleRecreateService}
             onAccessLog={handleNginxAccessLog}
             onReloadNginx={handleNginxReload}
             onNativeDbBackup={handleNativeDbBackup}
             onListNativeBackups={handleListNativeBackups}
             onRestoreNativeBackup={handleRestoreNativeBackup}
             onDownloadNativeBackup={handleDownloadNativeBackup}
+            onConnectionError={() =>
+              activeProject && setProjectStatus(activeProject.id, "disconnected")
+            }
             refreshVersion={runsVersion}
           />
 

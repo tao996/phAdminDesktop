@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Activity, Container, Project, Server } from "../data/mock";
 import {
@@ -8,6 +9,20 @@ import {
   loadDeploymentConfig,
   previewDeployPlan,
   previewProjectFiles,
+  saveProjectFile,
+  resetProjectFile,
+  uploadProjectFile,
+  readRemoteProjectFile,
+  listApplicationLogs,
+  readApplicationLog,
+  pruneApplicationLogs,
+  collectDiagnostics,
+  diagnosticCliInfo,
+  installDiagnosticCli,
+  writeExportFile,
+  type ApplicationLogFile,
+  type DiagnosticReport,
+  type DiagnosticCliInfo,
   saveTemplate,
   type DeployStep,
   type BackupEntry,
@@ -17,6 +32,32 @@ import {
 } from "../api/workspace";
 import { Icon } from "./Icon";
 import { CodeEditor } from "./CodeEditor";
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await Promise.race([
+      navigator.clipboard.writeText(text),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("clipboard timeout")), 800);
+      }),
+    ]);
+    return true;
+  } catch {
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      return copied;
+    } catch {
+      return false;
+    }
+  }
+}
 
 export type WorkspaceSection =
   | "overview"
@@ -37,6 +78,7 @@ interface OverviewProps extends PanelCommonProps {
   activities: Activity[];
   onSectionChange: (section: WorkspaceSection) => void;
   onOpenRuns: () => void;
+  onConnectionError: () => void;
   refreshVersion: number;
 }
 
@@ -81,6 +123,8 @@ const statusText: Record<Project["status"], string> = {
   stopped: "已停止",
   warning: "异常",
   "not-deployed": "未部署",
+  unknown: "未检测",
+  disconnected: "连接失败",
 };
 
 function StatCard({
@@ -126,6 +170,7 @@ export function OverviewPanel({
   onAction,
   onSectionChange,
   onOpenRuns,
+  onConnectionError,
   refreshVersion,
 }: OverviewProps) {
   const [liveActivities, setLiveActivities] = useState<Activity[] | null>(null);
@@ -149,6 +194,7 @@ export function OverviewPanel({
       })
       .catch((error: unknown) => {
         if (!cancelled) {
+          setLiveContainers(null);
           setLiveError(error instanceof Error ? error.message : String(error));
         }
       });
@@ -180,7 +226,9 @@ export function OverviewPanel({
       })
       .catch((error: unknown) => {
         if (!cancelled) {
+          setLiveContainers(null);
           setLiveError(error instanceof Error ? error.message : String(error));
+          onConnectionError();
         }
       });
     return () => {
@@ -230,7 +278,11 @@ export function OverviewPanel({
             total === 0
               ? project.status === "not-deployed"
                 ? "尚未部署"
-                : "点击测试连接刷新"
+                : project.status === "disconnected"
+                  ? "连接失败，点击测试连接重试"
+                  : project.status === "unknown"
+                    ? "未检测，点击测试连接"
+                    : "点击测试连接刷新"
               : "运行中的服务"
           }
           tone={total > 0 && running < total ? "warning" : "success"}
@@ -299,6 +351,7 @@ export function OverviewPanel({
             <button
               type="button"
               className="quick-action primary"
+              title="同步代码/文件、上传配置、启动容器并做健康检查"
               onClick={() => onSectionChange("deploy")}
             >
               <span className="quick-icon">
@@ -365,6 +418,7 @@ interface DeployPanelProps extends PanelCommonProps {
   onSyncBundleItem: (itemId: string) => Promise<void>;
   onSyncFtpItem: (itemId: string) => Promise<void>;
   onSyncAll: () => Promise<void>;
+  onSyncFiles: () => Promise<void>;
 }
 
 export function DeployPanel({
@@ -376,8 +430,10 @@ export function DeployPanel({
   onSyncBundleItem,
   onSyncFtpItem,
   onSyncAll,
+  onSyncFiles,
 }: DeployPanelProps) {
   const [syncingAll, setSyncingAll] = useState(false);
+  const [syncingFiles, setSyncingFiles] = useState(false);
   const [restart, setRestart] = useState(true);
   const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -462,6 +518,7 @@ export function DeployPanel({
             <button
               type="button"
               className="button secondary"
+              title="按同步项执行 git pull / bundle / ftp 同步；只更新代码，不生成或上传配置，也不重启容器"
               disabled={syncingAll || syncItems.length === 0}
               onClick={() => {
                 setSyncingAll(true);
@@ -474,6 +531,20 @@ export function DeployPanel({
             <button
               type="button"
               className="button secondary"
+              title="把「文件预览」生成的配置/模板上传到项目目录（不启动容器；预览中的临时编辑不会上传）"
+              disabled={syncingFiles}
+              onClick={() => {
+                setSyncingFiles(true);
+                void onSyncFiles().finally(() => setSyncingFiles(false));
+              }}
+            >
+              <Icon name="arrow-up-right" size={14} />
+              {syncingFiles ? "同步文件中…" : "同步文件"}
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              title="在目标服务器生成部署公钥，用于拉取私有 Git 仓库"
               onClick={() => onAction("phadmin:git-key", "生成部署密钥")}
             >
               <Icon name="shield" size={14} />
@@ -482,6 +553,7 @@ export function DeployPanel({
             <button
               type="button"
               className="button primary"
+              title="执行同步全部 → 生成并上传配置 → compose up → Nginx reload → 健康检查；失败会恢复部署前配置"
               onClick={() => {
                 onStartDeploy(restart);
               }}
@@ -491,10 +563,25 @@ export function DeployPanel({
             </button>
           </div>
 
-          <p className="muted-caption deploy-key-hint">
-            部署密钥会在目标服务器生成 SSH 公钥（<code>~/.ssh/id_ed25519.pub</code>），
-            用于拉取私有 Git 仓库；生成后请把公钥添加到 Git 服务商的部署密钥中。
-          </p>
+          <div className="muted-caption deploy-key-hint deploy-actions-hint">
+            <div>
+              <strong>同步全部</strong>：按同步项执行 git pull / bundle / ftp，只更新代码，
+              不生成或上传配置，也不重启容器。
+            </div>
+            <div>
+              <strong>同步文件</strong>：把「文件预览」生成的配置 / 模板上传到项目目录，
+              不启动容器；预览中的临时编辑不会上传。
+            </div>
+            <div>
+              <strong>部署密钥</strong>：在目标服务器生成 SSH 公钥（
+              <code>~/.ssh/id_ed25519.pub</code>），用于拉取私有 Git 仓库；生成后请把公钥
+              添加到 Git 服务商的部署密钥中。
+            </div>
+            <div>
+              <strong>开始部署</strong>：同步全部 → 上传配置 → compose up → Nginx reload →
+              健康检查；任一步失败会恢复部署前配置。
+            </div>
+          </div>
 
           {configError && (
             <div className="container-error">
@@ -626,6 +713,8 @@ export function DeployPanel({
 
 interface ContainersPanelProps extends PanelCommonProps {
   onExecuteCommand: (command: string) => void;
+  onConnectionError: () => void;
+  onRecreateService: (service: string) => Promise<void>;
   refreshVersion: number;
 }
 
@@ -633,10 +722,13 @@ export function ContainersPanel({
   project,
   onAction,
   onExecuteCommand,
+  onConnectionError,
+  onRecreateService,
   refreshVersion,
 }: ContainersPanelProps) {
   const [containers, setContainers] = useState<Container[]>(project.containers);
   const [refreshing, setRefreshing] = useState(false);
+  const [recreating, setRecreating] = useState<string | null>(null);
   const [containerError, setContainerError] = useState<string | null>(null);
   const running = containers.filter((container) => container.status === "running").length;
   const allMenuOpen = new URLSearchParams(window.location.search).get("all") === "open";
@@ -672,7 +764,9 @@ export function ContainersPanel({
         })),
       );
     } catch (error) {
+      setContainers([]);
       setContainerError(error instanceof Error ? error.message : String(error));
+      onConnectionError();
     } finally {
       setRefreshing(false);
     }
@@ -709,13 +803,15 @@ export function ContainersPanel({
                 </button>
                 <button
                   type="button"
+                  disabled={recreating !== null}
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
-                    onExecuteCommand("docker compose up -d");
+                    setRecreating("all");
+                    void onRecreateService("all").finally(() => setRecreating(null));
                   }}
                 >
                   <Icon name="refresh" size={13} />
-                  全部重启
+                  {recreating === "all" ? "全部重建中…" : "全部重启"}
                 </button>
                 <button
                   type="button"
@@ -740,17 +836,6 @@ export function ContainersPanel({
               {refreshing ? "刷新中…" : "刷新"}
             </button>
           </div>
-        </div>
-
-        <div className="image-notice">
-          <span className="image-notice-icon">
-            <Icon name="shield" size={14} />
-          </span>
-          <div>
-            <strong>PHP 镜像已更新</strong>
-            <span>authus/phalcon:5.23.0 · 旧 5.13.0 存在 PHP 版本漏洞；全部重启会按新镜像重建容器。</span>
-          </div>
-          <span className="tag latest">最新</span>
         </div>
 
         {containerError && (
@@ -831,6 +916,36 @@ export function ContainersPanel({
                           }
                         >
                           重启
+                        </button>
+                        <button
+                          type="button"
+                          className="mini-button"
+                          title={`按当前 .env / 镜像重建 ${container.service}（php 会自动重载 Nginx）`}
+                          disabled={recreating !== null}
+                          onClick={() => {
+                            setRecreating(container.service);
+                            void onRecreateService(container.service).finally(() =>
+                              setRecreating(null),
+                            );
+                          }}
+                        >
+                          {recreating === container.service ? "重建中…" : "重建"}
+                        </button>
+                        <button
+                          type="button"
+                          className="mini-button danger"
+                          title={`移除 ${container.service} 容器（镜像与数据卷保留）`}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `移除 ${container.service} 容器？\n镜像、数据卷与项目文件不会被删除；之后可用「全部操作 → 全部重启」重新创建。`,
+                              )
+                            ) {
+                              onExecuteCommand(`docker compose rm -sf ${container.service}`);
+                            }
+                          }}
+                        >
+                          移除
                         </button>
                       </div>
                     </td>
@@ -935,6 +1050,25 @@ export function NginxPanel({
               <Icon name="server" size={14} />
               环境检查
             </button>
+          </div>
+
+          <div className="muted-caption deploy-key-hint deploy-actions-hint nginx-actions-hint">
+            <div>
+              <strong>语法检查并重载</strong>：在宿主机执行 nginx -t 校验现有配置，通过后执行
+              nginx -s reload；不修改配置文件。
+            </div>
+            <div>
+              <strong>发布配置</strong>：按当前项目的域名、端口与 SSL 设置生成宿主机 Nginx
+              站点配置并上传，校验通过后 reload；失败会回滚到上传前版本。
+            </div>
+            <div>
+              <strong>移除配置</strong>：删除宿主机上该项目的 Nginx 站点配置，校验通过后
+              reload；不会删除项目文件或容器。
+            </div>
+            <div>
+              <strong>环境检查</strong>：检查服务器 docker、docker compose、nginx、certbot
+              等依赖及关键端口占用情况。
+            </div>
           </div>
 
           <div className="form-actions">
@@ -1269,6 +1403,22 @@ export function LogsPanel({ project }: Pick<PanelCommonProps, "project">) {
   const [level, setLevel] = useState("ALL");
   const [lines, setLines] = useState<{ time: string; level: string; text: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [appFiles, setAppFiles] = useState<ApplicationLogFile[]>([]);
+  const [selectedLog, setSelectedLog] = useState("");
+  const [logContent, setLogContent] = useState("");
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+  const [pruning, setPruning] = useState(false);
+  const [pruneNotice, setPruneNotice] = useState("");
+  const [diagReport, setDiagReport] = useState<DiagnosticReport | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
+  const [diagCopied, setDiagCopied] = useState(false);
+  const [cliInfo, setCliInfo] = useState<DiagnosticCliInfo | null>(null);
+  const [cliNotice, setCliNotice] = useState("");
+  const [installingCli, setInstallingCli] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [exportNotice, setExportNotice] = useState("");
 
   useEffect(() => {
     if (!canUseTauri()) return;
@@ -1305,6 +1455,177 @@ export function LogsPanel({ project }: Pick<PanelCommonProps, "project">) {
 
   const filtered = lines.filter((line) => level === "ALL" || line.level === level);
 
+  const readLog = async (name: string) => {
+    setSelectedLog(name);
+    setLogContent("");
+    setLogError(null);
+    try {
+      setLogContent(await readApplicationLog(project.id, name));
+    } catch (reason) {
+      setLogError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const loadAppLogs = async (preferred?: string) => {
+    if (!canUseTauri()) return;
+    setLogsLoading(true);
+    setLogError(null);
+    try {
+      const files = await listApplicationLogs(project.id);
+      setAppFiles(files);
+      const name =
+        (preferred && files.some((file) => file.name === preferred) && preferred) ||
+        (selectedLog && files.some((file) => file.name === selectedLog) && selectedLog) ||
+        files[0]?.name ||
+        "";
+      if (name) {
+        await readLog(name);
+      } else {
+        setSelectedLog("");
+        setLogContent("");
+      }
+    } catch (reason) {
+      setLogError(reason instanceof Error ? reason.message : String(reason));
+      setAppFiles([]);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setSelectedLog("");
+    setLogContent("");
+    setDiagReport(null);
+    setDiagError(null);
+    void loadAppLogs();
+    // project.id 变化时重新读取该项目的运行日志目录。
+  }, [project.id]);
+
+  const runDiagnostics = async () => {
+    if (diagLoading) return;
+    setDiagLoading(true);
+    setDiagError(null);
+    try {
+      setDiagReport(await collectDiagnostics(project.id));
+    } catch (reason) {
+      setDiagError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  const copyDiagnostics = async () => {
+    if (!diagReport) return;
+    if (!(await copyToClipboard(JSON.stringify(diagReport, null, 2)))) {
+      setDiagError("复制失败，请稍后重试");
+      return;
+    }
+    setDiagCopied(true);
+    window.setTimeout(() => setDiagCopied(false), 1500);
+  };
+
+  useEffect(() => {
+    if (!canUseTauri()) return;
+    void diagnosticCliInfo()
+      .then(setCliInfo)
+      .catch(() => setCliInfo(null));
+  }, []);
+
+  const copyAiPrompt = async () => {
+    const command = cliInfo?.command ?? "phadmin-cli";
+    const prompt = [
+      `线上项目 ${project.name} 出现异常。请先执行：`,
+      `${command} error ${project.name} --format json`,
+      "",
+      "根据 JSON 中的 findings、httpStatus、containers、logs 定位原因。",
+      "需要更多信息时再执行：",
+      `${command} logs ${project.name} --source php`,
+      `${command} containers ${project.name}`,
+      "",
+      "不要自动执行修复命令，先给出证据、根因和分步修复方案。",
+      cliInfo?.available
+        ? ""
+        : "如果命令不存在，请先在应用「日志 → 故障诊断」中点击“安装 CLI”。",
+    ]
+      .filter((line) => line !== null)
+      .join("\n");
+    if (!(await copyToClipboard(prompt))) {
+      setCliNotice("复制失败，请检查剪贴板权限");
+      return;
+    }
+    setPromptCopied(true);
+    window.setTimeout(() => setPromptCopied(false), 1500);
+  };
+
+  const installCli = async () => {
+    if (installingCli) return;
+    setInstallingCli(true);
+    setCliNotice("");
+    try {
+      const info = await installDiagnosticCli();
+      setCliInfo(info);
+      setCliNotice(`CLI 已安装：${info.command}`);
+    } catch (reason) {
+      setCliNotice(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setInstallingCli(false);
+    }
+  };
+
+  const exportDiagnostics = async () => {
+    if (!diagReport) return;
+    setExportNotice("");
+    try {
+      if (!canUseTauri()) return;
+      const path = await save({
+        defaultPath: `${project.name}-diagnose.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!path) return;
+      await writeExportFile(path, JSON.stringify(diagReport, null, 2));
+      setExportNotice(`已导出：${path}`);
+    } catch (reason) {
+      setDiagError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const diagnosticSeverity = diagReport?.findings.some(
+    (finding) => finding.severity === "critical",
+  )
+    ? "critical"
+    : diagReport?.findings.some((finding) => finding.severity === "warning")
+      ? "warning"
+      : diagReport?.findings.length
+        ? "info"
+        : "ok";
+  const runningContainers =
+    diagReport?.containers.filter((container) => container.state === "running").length ?? 0;
+
+  const pruneLogs = async () => {
+    if (pruning) return;
+    if (
+      !window.confirm(
+        "删除 src/storage/logs 下超过 7 天的日志文件？\n此操作不可撤销，最近 7 天的日志会保留。",
+      )
+    ) {
+      return;
+    }
+    setPruning(true);
+    setLogError(null);
+    setPruneNotice("");
+    try {
+      const removed = await pruneApplicationLogs(project.id, 7);
+      setPruneNotice(
+        removed.length > 0 ? `已清理 ${removed.length} 个日志文件` : "没有超过 7 天的日志",
+      );
+      await loadAppLogs();
+    } catch (reason) {
+      setLogError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setPruning(false);
+    }
+  };
+
   const exportLogs = () => {
     const text = filtered
       .map((line) => `${line.time} ${line.level} ${line.text}`)
@@ -1319,13 +1640,16 @@ export function LogsPanel({ project }: Pick<PanelCommonProps, "project">) {
 
   return (
     <div className="panel-stack">
-      <section className="card logs-card">
-        <div className="card-heading">
+      <details className="card logs-card log-history">
+        <summary className="log-history-summary">
           <div>
             <span className="section-kicker">History</span>
-            <h3>运行日志</h3>
+            <h3>任务记录</h3>
           </div>
-          <div className="heading-actions">
+          <span className="muted-caption">展开查看</span>
+        </summary>
+        <div className="log-history-body">
+          <div className="heading-actions log-history-actions">
             <div className="segmented compact">
               {["ALL", "INFO", "OK", "WARN"].map((item) => (
                 <button
@@ -1343,21 +1667,279 @@ export function LogsPanel({ project }: Pick<PanelCommonProps, "project">) {
               导出
             </button>
           </div>
+          <div className="log-viewer">
+            {filtered.map((line) => (
+              <div className="log-line" key={`${line.time}-${line.text}`}>
+                <span className="log-time">{line.time}</span>
+                <span className={`log-level ${line.level.toLowerCase()}`}>{line.level}</span>
+                <span className="log-text">{line.text}</span>
+              </div>
+            ))}
+            {!loading && filtered.length === 0 && (
+              <div className="empty-inline">暂无运行记录</div>
+            )}
+            {loading && <div className="empty-inline">读取运行记录…</div>}
+          </div>
         </div>
-        <div className="log-viewer">
-          {filtered.map((line) => (
-            <div className="log-line" key={`${line.time}-${line.text}`}>
-              <span className="log-time">{line.time}</span>
-              <span className={`log-level ${line.level.toLowerCase()}`}>{line.level}</span>
-              <span className="log-text">{line.text}</span>
+      </details>
+
+      <section className="card app-log-card">
+        <div className="card-heading">
+          <div>
+            <span className="section-kicker">Runtime</span>
+            <h3>应用运行日志</h3>
+          </div>
+          <div className="heading-actions">
+            <span className="muted-caption">src/storage/logs · 最近 500 行</span>
+            {pruneNotice && <span className="files-saved">{pruneNotice}</span>}
+            <button
+              type="button"
+              className="mini-button"
+              disabled={diagLoading}
+              onClick={() => void runDiagnostics()}
+            >
+              <Icon name="activity" size={12} />
+              {diagLoading ? "诊断中…" : "运行诊断"}
+            </button>
+            <button
+              type="button"
+              className="mini-button"
+              title="删除 src/storage/logs 下超过 7 天的日志文件"
+              disabled={pruning}
+              onClick={() => void pruneLogs()}
+            >
+              <Icon name="trash" size={12} />
+              {pruning ? "清理中…" : "只保留最近7天"}
+            </button>
+            <button
+              type="button"
+              className="mini-button"
+              disabled={logsLoading}
+              onClick={() => void loadAppLogs()}
+            >
+              <Icon name="refresh" size={12} />
+              {logsLoading ? "刷新中…" : "刷新"}
+            </button>
+          </div>
+        </div>
+        {logError && (
+          <div className="container-error">
+            <Icon name="alert" size={13} />
+            <span>{logError}</span>
+          </div>
+        )}
+        <div className="app-log-layout">
+          <aside className="app-log-list">
+            {appFiles.map((file) => (
+              <button
+                key={file.name}
+                type="button"
+                className={file.name === selectedLog ? "app-log-item active" : "app-log-item"}
+                onClick={() => void readLog(file.name)}
+              >
+                <span className="app-log-name">{file.name}</span>
+                <span className="app-log-meta">
+                  {file.size >= 1024
+                    ? `${(file.size / 1024).toFixed(1)} KB`
+                    : `${file.size} B`}
+                  {file.modified > 0 &&
+                    ` · ${new Date(file.modified * 1000).toLocaleString("zh-CN", {
+                      hour12: false,
+                    })}`}
+                </span>
+              </button>
+            ))}
+            {!logsLoading && appFiles.length === 0 && (
+              <div className="empty-inline">暂无日志文件</div>
+            )}
+            {logsLoading && <div className="empty-inline">读取日志目录…</div>}
+          </aside>
+          <div className="app-log-view">
+            <div className="app-log-toolbar">
+              <span>{selectedLog || "未选择文件"}</span>
             </div>
-          ))}
-          {!loading && filtered.length === 0 && (
-            <div className="empty-inline">暂无运行记录</div>
-          )}
-          {loading && <div className="empty-inline">读取运行记录…</div>}
+            <pre>{logContent || "选择左侧日志文件查看内容"}</pre>
+          </div>
         </div>
       </section>
+
+      {(diagLoading || diagError || diagReport) && (
+        <section className="card diagnostics-card">
+          <div className="card-heading">
+            <div>
+              <span className="section-kicker">Diagnostics</span>
+              <h3>故障诊断</h3>
+            </div>
+            <div className="heading-actions">
+              {diagReport && (
+                <button type="button" className="mini-button" onClick={() => void copyAiPrompt()}>
+                  <Icon name="copy" size={12} />
+                  {promptCopied ? "已复制指令" : "复制 AI 指令"}
+                </button>
+              )}
+              {diagReport && (
+                <button type="button" className="mini-button" onClick={() => void exportDiagnostics()}>
+                  <Icon name="download" size={12} />
+                  导出报告
+                </button>
+              )}
+              {diagReport && (
+                <button type="button" className="mini-button" onClick={() => void copyDiagnostics()}>
+                  <Icon name="copy" size={12} />
+                  {diagCopied ? "已复制" : "复制报告"}
+                </button>
+              )}
+              {!cliInfo?.installed && (
+                <button
+                  type="button"
+                  className="mini-button"
+                  disabled={installingCli}
+                  onClick={() => void installCli()}
+                >
+                  <Icon name="terminal" size={12} />
+                  {installingCli ? "安装中…" : "安装 CLI"}
+                </button>
+              )}
+              <button
+                type="button"
+                className="mini-button"
+                disabled={diagLoading}
+                onClick={() => void runDiagnostics()}
+              >
+                <Icon name="activity" size={12} />
+                {diagLoading ? "诊断中…" : "重新诊断"}
+              </button>
+            </div>
+          </div>
+
+          {(cliNotice || exportNotice) && (
+            <div className="diag-window">{cliNotice || exportNotice}</div>
+          )}
+
+          {diagLoading && (
+            <div className="empty-inline">正在采集容器、HTTP 状态和最近日志…</div>
+          )}
+          {diagError && (
+            <div className="container-error">
+              <Icon name="alert" size={13} />
+              <span>{diagError}</span>
+            </div>
+          )}
+
+          {diagReport && !diagLoading && (
+            <>
+              <div className="diag-summary">
+                <div>
+                  <span>HTTP</span>
+                  <strong>{diagReport.httpStatus ?? "未采集"}</strong>
+                </div>
+                <div>
+                  <span>容器</span>
+                  <strong>
+                    {runningContainers}/{diagReport.containers.length}
+                  </strong>
+                </div>
+                <div>
+                  <span>发现</span>
+                  <strong>{diagReport.findings.length}</strong>
+                </div>
+                <div>
+                  <span>脱敏</span>
+                  <strong>{diagReport.redactions}</strong>
+                </div>
+              </div>
+
+              <div className={`diag-verdict ${diagnosticSeverity}`}>
+                {diagnosticSeverity === "ok"
+                  ? "未发现已知错误模式；可继续查看应用日志。"
+                  : diagnosticSeverity === "info"
+                    ? "发现提示项，未检测到明确故障。"
+                    : diagnosticSeverity === "warning"
+                      ? "发现需要关注的异常。"
+                      : "发现严重故障，请优先处理。"}
+              </div>
+              <div className="diag-window">
+                规则仅基于最近 {diagReport.findingsWindowMinutes} 分钟日志；历史错误请对照「采集详情」。
+              </div>
+
+              <div className="diag-findings">
+                {diagReport.findings.map((finding) => (
+                  <div
+                    key={`${finding.code}-${finding.title}`}
+                    className={`diag-finding ${finding.severity}`}
+                  >
+                    <div className="diag-finding-head">
+                      <span className={`diag-severity ${finding.severity}`}>
+                        {finding.severity.toUpperCase()}
+                      </span>
+                      <strong>{finding.title}</strong>
+                      <code>{finding.code}</code>
+                    </div>
+                    <p>{finding.detail}</p>
+                    {finding.evidence.map((line) => (
+                      <pre key={line}>{line}</pre>
+                    ))}
+                  </div>
+                ))}
+                {diagReport.findings.length === 0 && (
+                  <div className="empty-inline">未匹配到本地规则。</div>
+                )}
+              </div>
+
+              {diagReport.errors.length > 0 && (
+                <div className="diag-errors">
+                  <strong>采集失败项</strong>
+                  {diagReport.errors.map((error) => (
+                    <div key={error}>{error}</div>
+                  ))}
+                </div>
+              )}
+
+              <details className="diag-details">
+                <summary>采集详情（容器 / 日志 / 最近任务）</summary>
+                <div className="diag-detail-body">
+                  <div className="diag-containers">
+                    {diagReport.containers.map((container) => (
+                      <div key={container.name} className="diag-container-row">
+                        <span>{container.service}</span>
+                        <span className={container.state === "running" ? "ok" : "warn"}>
+                          {container.state}
+                        </span>
+                        <span>{container.image}</span>
+                        <span>{container.status}</span>
+                      </div>
+                    ))}
+                    {diagReport.containers.length === 0 && (
+                      <div className="empty-inline">未读取到容器</div>
+                    )}
+                  </div>
+                  {diagReport.logs.map((log) => (
+                    <details key={log.source} className="diag-log">
+                      <summary>
+                        {log.source}
+                        {log.truncated ? "（已截断）" : ""}
+                      </summary>
+                      <pre>{log.content}</pre>
+                    </details>
+                  ))}
+                  {diagReport.runs.length > 0 && (
+                    <div className="diag-runs">
+                      <strong>最近任务</strong>
+                      {diagReport.runs.map((run, index) => (
+                        <div key={`${run.startedAt ?? ""}-${index}`} className="diag-run-row">
+                          <span>{run.status}</span>
+                          <code>{[run.command, ...run.args].join(" ")}</code>
+                          {run.error && <span>{run.error}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
+            </>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -1375,6 +1957,11 @@ export function FilesPanel({ project }: Pick<PanelCommonProps, "project">) {
   const [newContent, setNewContent] = useState("");
   const [addError, setAddError] = useState("");
   const [savingFile, setSavingFile] = useState(false);
+  const [savingOverride, setSavingOverride] = useState(false);
+  const [savedNotice, setSavedNotice] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteFile, setRemoteFile] = useState<{ path: string; content: string } | null>(null);
 
   const load = async () => {
     if (!canUseTauri()) {
@@ -1409,6 +1996,82 @@ export function FilesPanel({ project }: Pick<PanelCommonProps, "project">) {
     await navigator.clipboard.writeText(content);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  const saveOverride = async () => {
+    if (!current || !dirty || savingOverride) return;
+    setSavingOverride(true);
+    setError(null);
+    try {
+      await saveProjectFile(project.id, current.path, content);
+      setFiles((list) =>
+        list.map((file) =>
+          file.path === current.path ? { ...file, content, overridden: true } : file,
+        ),
+      );
+      setDrafts((currentDrafts) => {
+        const next = { ...currentDrafts };
+        delete next[current.path];
+        return next;
+      });
+      setSavedNotice("已保存");
+      window.setTimeout(() => setSavedNotice(""), 2000);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSavingOverride(false);
+    }
+  };
+
+  const resetOverride = async () => {
+    if (!current) return;
+    setError(null);
+    try {
+      await resetProjectFile(project.id, current.path);
+      setDrafts((currentDrafts) => {
+        const next = { ...currentDrafts };
+        delete next[current.path];
+        return next;
+      });
+      await load();
+      setEditorVersion((value) => value + 1);
+      setSavedNotice("已恢复生成内容");
+      window.setTimeout(() => setSavedNotice(""), 2000);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const uploadFile = async () => {
+    if (!current || uploading) return;
+    setUploading(true);
+    setError(null);
+    try {
+      await uploadProjectFile(project.id, current.path, content);
+      setSavedNotice(`已上传 ${current.path}`);
+      window.setTimeout(() => setSavedNotice(""), 2500);
+      if (remoteFile?.path === current.path) {
+        setRemoteFile({ path: current.path, content });
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const viewRemoteFile = async () => {
+    if (!current || remoteLoading) return;
+    setRemoteLoading(true);
+    setError(null);
+    try {
+      const text = await readRemoteProjectFile(project.id, current.path);
+      setRemoteFile({ path: current.path, content: text });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setRemoteLoading(false);
+    }
   };
 
   const saveNewFile = async () => {
@@ -1495,44 +2158,92 @@ export function FilesPanel({ project }: Pick<PanelCommonProps, "project">) {
         </aside>
         <section className="files-view">
           {current ? (
-            <>
-              <div className="files-path">
-                <span>{current.path}</span>
-                <div className="heading-actions">
-                  {dirty && (
+            <div
+              className={
+                remoteFile?.path === current.path ? "files-compare" : "files-pane"
+              }
+            >
+              <div className="files-pane">
+                <div className="files-path">
+                  <span>{current.path}</span>
+                  <div className="heading-actions">
+                    {savedNotice && <span className="files-saved">{savedNotice}</span>}
                     <button
                       type="button"
                       className="mini-button"
-                      onClick={() => {
-                        setDrafts((currentDrafts) => {
-                          const next = { ...currentDrafts };
-                          delete next[current.path];
-                          return next;
-                        });
-                        setEditorVersion((value) => value + 1);
-                      }}
+                      disabled={!dirty || savingOverride}
+                      onClick={() => void saveOverride()}
                     >
-                      重置修改
+                      <Icon name="check" size={12} />
+                      {savingOverride ? "保存中…" : "保存"}
                     </button>
-                  )}
-                  <button type="button" className="mini-button" onClick={() => void copyContent()}>
-                    <Icon name="copy" size={12} />
-                    {copied ? "已复制" : "复制"}
-                  </button>
+                    <button
+                      type="button"
+                      className="mini-button"
+                      title="把当前内容只上传到项目中的这个文件（上传后回读校验）"
+                      disabled={uploading}
+                      onClick={() => void uploadFile()}
+                    >
+                      <Icon name="arrow-up-right" size={12} />
+                      {uploading ? "上传中…" : "上传"}
+                    </button>
+                    <button
+                      type="button"
+                      className="mini-button"
+                      title="读取线上同名文件，分栏对照，不覆盖本地内容"
+                      disabled={remoteLoading}
+                      onClick={() => void viewRemoteFile()}
+                    >
+                      <Icon name="eye" size={12} />
+                      {remoteLoading ? "读取中…" : "查看"}
+                    </button>
+                    {(dirty || current.overridden) && (
+                      <button
+                        type="button"
+                        className="mini-button"
+                        onClick={() => void resetOverride()}
+                      >
+                        重置修改
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="mini-button"
+                      onClick={() => void copyContent()}
+                    >
+                      <Icon name="copy" size={12} />
+                      {copied ? "已复制" : "复制"}
+                    </button>
+                  </div>
                 </div>
+                <CodeEditor
+                  key={`${current.path}:${editorVersion}`}
+                  path={current.path}
+                  value={content}
+                  onChange={(value) =>
+                    setDrafts((currentDrafts) => ({
+                      ...currentDrafts,
+                      [current.path]: value,
+                    }))
+                  }
+                />
               </div>
-              <CodeEditor
-                key={`${current.path}:${editorVersion}`}
-                path={current.path}
-                value={content}
-                onChange={(value) =>
-                  setDrafts((currentDrafts) => ({
-                    ...currentDrafts,
-                    [current.path]: value,
-                  }))
-                }
-              />
-            </>
+              {remoteFile?.path === current.path && (
+                <div className="files-pane files-remote">
+                  <div className="files-path">
+                    <span>线上 · {remoteFile.path}</span>
+                    <button
+                      type="button"
+                      className="mini-button"
+                      onClick={() => setRemoteFile(null)}
+                    >
+                      关闭
+                    </button>
+                  </div>
+                  <pre className="remote-file-content">{remoteFile.content}</pre>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="empty-inline">选择左侧文件查看内容</div>
           )}

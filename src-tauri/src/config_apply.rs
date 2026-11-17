@@ -47,7 +47,7 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apply_generated_config(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -121,8 +121,8 @@ pub fn apply_generated_config(
             return Err(format!("{file} 上传后校验失败"));
         }
         transcript.push_str(&format!(
-            "$ upload {} -> {}:{}\n$ verified {}\n",
-            file, target.host, destination, file
+            "$ upload {} -> {}\n$ verify {}: content matches\n",
+            file, destination, file
         ));
     }
 
@@ -154,10 +154,7 @@ pub fn apply_generated_config(
             backup_existing(&target, &destination, millis)?;
         }
         runner::upload_to_target(&target, &source, &destination)?;
-        transcript.push_str(&format!(
-            "$ upload {} -> {}:{}\n",
-            relative, target.host, destination
-        ));
+        transcript.push_str(&format!("$ upload {} -> {}\n", relative, destination));
     }
 
     // 自定义模板：write_generated_config 写入清单，按路径原样上传。
@@ -183,10 +180,7 @@ pub fn apply_generated_config(
                 runner::ensure_target_dir(&target, &parent.to_string_lossy())?;
             }
             runner::upload_to_target(&target, &source, &destination)?;
-            transcript.push_str(&format!(
-                "$ upload {} -> {}:{}\n",
-                relative, target.host, destination
-            ));
+            transcript.push_str(&format!("$ upload {} -> {}\n", relative, destination));
         }
     }
 
@@ -366,7 +360,7 @@ pub fn restore_config_backup(
     Ok(format!("restored {file} from {backup_name}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn prepare_runtime_assets(
     state: State<'_, AppState>,
     deployment_id: String,

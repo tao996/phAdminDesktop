@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "PhAdmin Desktop - Phalcon Admin deployment console"
 authors = ["tao996"]
 edition = "2024"
+default-run = "ph-admin-desktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,12 +24,17 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
+regex = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 flate2 = "1"
+tauri-plugin-dialog = "2"
 
 # 凭据按平台分别启用：Windows Credential Manager / macOS Keychain / Linux Secret Service。
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
 webview2-com = "0.39"
+winreg = "0.55"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["apple-native"] }

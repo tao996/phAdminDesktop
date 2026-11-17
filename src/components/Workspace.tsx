@@ -36,6 +36,9 @@ interface WorkspaceProps {
   onRestoreNativeBackup: (name: string) => Promise<void>;
   onDownloadNativeBackup: (name: string) => Promise<void>;
   onSyncAll: () => Promise<void>;
+  onSyncFiles: () => Promise<void>;
+  onRecreateService: (service: string) => Promise<void>;
+  onConnectionError: () => void;
   refreshVersion: number;
 }
 
@@ -71,6 +74,9 @@ export function Workspace({
   onRestoreNativeBackup,
   onDownloadNativeBackup,
   onSyncAll,
+  onSyncFiles,
+  onRecreateService,
+  onConnectionError,
   refreshVersion,
 }: WorkspaceProps) {
   const [moreOpen, setMoreOpen] = useState(
@@ -141,14 +147,6 @@ export function Workspace({
           >
             <Icon name="box" size={14} />
             测试连接
-          </button>
-          <button
-            type="button"
-            className="button primary"
-            onClick={() => onSectionChange("deploy")}
-          >
-            <Icon name="rocket" size={14} />
-            部署 / 升级
           </button>
           <div className="more-wrap">
             <button
@@ -238,6 +236,7 @@ export function Workspace({
             onAction={onAction}
             onSectionChange={onSectionChange}
             onOpenRuns={onOpenRuns}
+            onConnectionError={onConnectionError}
             refreshVersion={refreshVersion}
           />
         )}
@@ -251,6 +250,7 @@ export function Workspace({
             onSyncBundleItem={onSyncBundleItem}
             onSyncFtpItem={onSyncFtpItem}
             onSyncAll={onSyncAll}
+            onSyncFiles={onSyncFiles}
           />
         )}
         {section === "files" && <FilesPanel project={project} />}
@@ -260,6 +260,8 @@ export function Workspace({
             server={server}
             onAction={onAction}
             onExecuteCommand={onExecuteCommand}
+            onConnectionError={onConnectionError}
+            onRecreateService={onRecreateService}
             refreshVersion={refreshVersion}
           />
         )}

@@ -201,13 +201,168 @@ export async function setLocalRepoPath(path: string): Promise<void> {
   return invoke<void>("set_local_repo_path", { path });
 }
 
+export async function setDeploymentStatus(
+  deploymentId: string,
+  status: string,
+): Promise<void> {
+  return invoke<void>("set_deployment_status", { deploymentId, status });
+}
+
+export async function recreateService(
+  deploymentId: string,
+  service: string,
+): Promise<string> {
+  return invoke<string>("recreate_service", { deploymentId, service });
+}
+
+export async function uploadProjectFile(
+  deploymentId: string,
+  path: string,
+  content: string,
+): Promise<string> {
+  return invoke<string>("upload_project_file", { deploymentId, path, content });
+}
+
+export async function readRemoteProjectFile(
+  deploymentId: string,
+  path: string,
+): Promise<string> {
+  return invoke<string>("read_remote_project_file", { deploymentId, path });
+}
+
+export interface ApplicationLogFile {
+  name: string;
+  size: number;
+  modified: number;
+}
+
+export async function listApplicationLogs(
+  deploymentId: string,
+): Promise<ApplicationLogFile[]> {
+  return invoke<ApplicationLogFile[]>("list_application_logs", { deploymentId });
+}
+
+export async function readApplicationLog(
+  deploymentId: string,
+  name: string,
+): Promise<string> {
+  return invoke<string>("read_application_log", { deploymentId, name });
+}
+
+export async function pruneApplicationLogs(
+  deploymentId: string,
+  keepDays: number,
+): Promise<string[]> {
+  return invoke<string[]>("prune_application_logs", { deploymentId, keepDays });
+}
+
+export interface DiagnosticContainer {
+  service: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+}
+
+export interface DiagnosticFinding {
+  code: string;
+  severity: string;
+  title: string;
+  detail: string;
+  evidence: string[];
+}
+
+export interface DiagnosticLog {
+  source: string;
+  content: string;
+  truncated: boolean;
+}
+
+export interface DiagnosticRun {
+  command: string;
+  args: string[];
+  status: string;
+  error: string | null;
+  startedAt: string | null;
+}
+
+export interface DiagnosticReport {
+  deploymentId: string;
+  projectName: string;
+  serverName: string;
+  serverHost: string;
+  generatedAt: number;
+  httpStatus: number | null;
+  httpError: string | null;
+  containers: DiagnosticContainer[];
+  findings: DiagnosticFinding[];
+  logs: DiagnosticLog[];
+  runs: DiagnosticRun[];
+  errors: string[];
+  redactions: number;
+  findingsWindowMinutes: number;
+}
+
+export async function collectDiagnostics(deploymentId: string): Promise<DiagnosticReport> {
+  return invoke<DiagnosticReport>("collect_diagnostics", { deploymentId });
+}
+
+export interface DiagnosticCliInfo {
+  command: string;
+  available: boolean;
+  installed: boolean;
+}
+
+export async function diagnosticCliInfo(): Promise<DiagnosticCliInfo> {
+  return invoke<DiagnosticCliInfo>("diagnostic_cli_info");
+}
+
+export interface DiagnosticCliStatus {
+  command: string;
+  installed: boolean;
+  onPath: boolean;
+  binDir: string;
+}
+
+export async function diagnosticCliStatus(): Promise<DiagnosticCliStatus> {
+  return invoke<DiagnosticCliStatus>("diagnostic_cli_status");
+}
+
+export async function addDiagnosticCliToPath(): Promise<DiagnosticCliStatus> {
+  return invoke<DiagnosticCliStatus>("add_diagnostic_cli_to_path");
+}
+
+export async function installDiagnosticCli(): Promise<DiagnosticCliInfo> {
+  return invoke<DiagnosticCliInfo>("install_diagnostic_cli");
+}
+
+export async function writeExportFile(path: string, content: string): Promise<void> {
+  return invoke<void>("write_export_file", { path, content });
+}
+
 export interface PreviewFile {
   path: string;
   content: string;
+  overridden: boolean;
 }
 
 export async function previewProjectFiles(deploymentId: string): Promise<PreviewFile[]> {
   return invoke<PreviewFile[]>("preview_project_files", { deploymentId });
+}
+
+export async function saveProjectFile(
+  deploymentId: string,
+  path: string,
+  content: string,
+): Promise<void> {
+  return invoke<void>("save_project_file", { deploymentId, path, content });
+}
+
+export async function resetProjectFile(
+  deploymentId: string,
+  path: string,
+): Promise<void> {
+  return invoke<void>("reset_project_file", { deploymentId, path });
 }
 
 export interface ProjectSyncItemInput {

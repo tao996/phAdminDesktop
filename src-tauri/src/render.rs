@@ -278,6 +278,7 @@ pub fn preview_template(
 pub struct ProjectFilePreview {
     pub path: String,
     pub content: String,
+    pub overridden: bool,
 }
 
 #[tauri::command]
@@ -305,19 +306,57 @@ pub fn preview_project_files(
         ("docker/nginx/sites/default.conf", &vars),
         ("docker/php/php.ini", &vars),
     ] {
+        let rendered = render_template(&connection, path, vars)?;
+        let overridden = crate::db::get_deployment_file(&connection, &deployment_id, path)?;
         files.push(ProjectFilePreview {
             path: path.to_string(),
-            content: render_template(&connection, path, vars)?,
+            content: overridden.clone().unwrap_or(rendered),
+            overridden: overridden.is_some(),
         });
     }
     for path in crate::templates::custom_paths(&connection)? {
+        let rendered = render_template(&connection, &path, &vars)?;
+        let overridden = crate::db::get_deployment_file(&connection, &deployment_id, &path)?;
         files.push(ProjectFilePreview {
-            content: render_template(&connection, &path, &vars)?,
+            content: overridden.clone().unwrap_or(rendered),
+            overridden: overridden.is_some(),
             path,
         });
     }
 
     Ok(files)
+}
+
+#[tauri::command]
+pub fn save_project_file(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let path = crate::templates::normalize_path(&path)?;
+    if content.len() > 1024 * 1024 {
+        return Err("文件内容超过 1 MB 限制".to_string());
+    }
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    crate::db::save_deployment_file(&connection, &deployment_id, &path, &content)
+}
+
+#[tauri::command]
+pub fn reset_project_file(
+    state: State<'_, AppState>,
+    deployment_id: String,
+    path: String,
+) -> Result<(), String> {
+    let path = crate::templates::normalize_path(&path)?;
+    let connection = state
+        .db
+        .lock()
+        .map_err(|error| format!("数据库连接被占用: {error}"))?;
+    crate::db::delete_deployment_file(&connection, &deployment_id, &path)
 }
 
 #[tauri::command]
@@ -597,7 +636,7 @@ pub fn open_generated_dir(app: AppHandle, deployment_id: String) -> Result<(), S
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_generated_config(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -708,6 +747,20 @@ pub fn write_generated_config(
         serde_json::to_vec(&custom_paths).map_err(|error| format!("写入模板清单失败: {error}"))?,
     )
     .map_err(|error| format!("写入模板清单失败: {error}"))?;
+
+    // 用户在文件预览中保存的最终内容覆盖生成结果。
+    for (relative, content) in crate::db::list_deployment_files(&connection, &deployment_id)? {
+        let target_path = if relative == "src/config/config.php" {
+            directory.join("config.php")
+        } else {
+            directory.join(&relative)
+        };
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建目录失败: {error}"))?;
+        }
+        fs::write(&target_path, content)
+            .map_err(|error| format!("写入 {relative} 失败: {error}"))?;
+    }
 
     Ok(GeneratedFiles {
         directory: directory.to_string_lossy().to_string(),

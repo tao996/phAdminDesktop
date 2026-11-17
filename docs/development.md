@@ -48,6 +48,16 @@ cargo check
 
 > `npm run tauri dev` 首次会编译 Rust，耗时较长；后续增量编译较快。
 
+诊断 CLI：
+
+```bash
+cargo build --manifest-path src-tauri/Cargo.toml --bin phadmin-cli
+./phadmin-cli.cmd projects
+./phadmin-cli.cmd error yihe --format json
+```
+
+详见 [ai-diagnostics.md](ai-diagnostics.md)。
+
 ---
 
 ## 3. 目录结构

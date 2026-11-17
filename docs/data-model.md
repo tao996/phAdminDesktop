@@ -432,3 +432,6 @@ CREATE INDEX idx_runs_deployment_started ON runs(deployment_id, started_at DESC)
 - `servers.name` 由用户填写（最长 64 字符，唯一），不再自动生成 `user@host:port`；`servers.id` 仍由名称生成稳定 slug；
 - 添加/修改服务器面板第一个字段为「名称」；
 - 项目创建/部署面板中的服务器选择只显示名称；服务器菜单显示「名称 + 用户 · SSH」，概览不显示 IP；IP 仅在服务器编辑表单中维护。
+## deployment_files
+
+`deployment_files(deployment_id, path, content, updated_at)` 保存文件预览中用户手动保存的最终内容；主键 `(deployment_id, path)`，随 deployment 级联删除。生成配置时优先使用覆盖内容。

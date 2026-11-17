@@ -19,6 +19,8 @@ const statusLabel: Record<ProjectStatus, string> = {
   stopped: "已停止",
   warning: "异常",
   "not-deployed": "未部署",
+  unknown: "未检测",
+  disconnected: "连接失败",
 };
 
 export function Sidebar({
